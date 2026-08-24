@@ -1,0 +1,41 @@
+name: Nightly benchmark
+
+on:
+  schedule:
+    # 03:00 UTC. Free endpoints are least contended outside US working hours,
+    # which measurably reduces dropped attempts.
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Two runs at once would share the same daily quota and both finish with
+  # holes in them.
+  group: nightly-benchmark
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+
+      - name: Run the suite
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: agentscore suites/instruction-following.yaml --out results/
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add results/
+          # No changes is a normal outcome, not a failed build.
+          git diff --staged --quiet || git commit -m "benchmark: $(date -u +%Y-%m-%d)"
+          git push

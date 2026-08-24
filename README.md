@@ -1,0 +1,255 @@
+# agentscore
+
+**A small evaluation harness that refuses to overclaim.** Runs a task suite
+against several models, repeats every task, and reports pass rates with
+confidence intervals instead of a single number.
+
+It benchmarks **free models**, because that is the question nobody with a
+budget bothers to answer: if you are not paying, what can you actually build
+with?
+
+[![CI](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml/badge.svg)](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+```bash
+agentscore suites/instruction-following.yaml --out results/
+```
+
+```
+| # | Model                                     | Pass rate | 95% CI  | Flaky | Dropped |
+|---|-------------------------------------------|-----------|---------|-------|---------|
+| 1=| meta-llama/llama-3.3-70b-instruct:free    | 54%       | 39-68%  | 6     | 1       |
+| 1=| qwen/qwen-2.5-72b-instruct:free           | 46%       | 32-61%  | 7     | 1       |
+| 1=| microsoft/phi-3-medium-128k-instruct:free | 41%       | 27-57%  | 5     | 1       |
+| 1=| google/gemma-2-9b-it:free                 | 30%       | 17-46%  | 7     | 3       |
+| 2 | mistralai/mistral-7b-instruct:free        | 22%       | 11-37%  | 5     | 3       |
+```
+
+Four of those five models are marked **tied at rank 1**. Their pass rates read
+54, 46, 41 and 30 percent, which looks like a clear ordering, and at 40
+attempts each it is not one. Saying so is the entire point of this tool.
+
+---
+
+## Four opinions, and what each one prevents
+
+### 1. One run is not a result
+
+Every task is attempted `repeats` times and reported as a pass rate with a
+**Wilson 95% interval**. Not the textbook normal approximation, which most
+dashboards use and which reports a width of exactly zero for 0/5 and 5/5,
+precisely where an eval needs an interval most.
+
+```python
+wilson(3, 3)   # point 1.00, low 0.44, high 1.00
+```
+
+Three out of three is 100%, with a lower bound near 44%. That is the correct
+amount of confidence to have in three attempts.
+
+### 2. Overlapping intervals are a tie, not a ranking
+
+If two models' intervals overlap, the report gives them the same rank and marks
+it. Ranking them anyway invents a difference the data cannot support, and that
+is how a leaderboard ends up reordering itself nightly for no reason anyone can
+explain.
+
+Ranks are counted against every other model, not against the one immediately
+above. Comparing to the neighbour makes overlap transitive, so a chain of
+models that each overlap the next collapses into one giant tie even when the
+top and bottom are plainly different. There is a test named
+`test_overlap_is_not_transitive` because I got this wrong the first time.
+
+### 3. A broken request is not a bad score
+
+Attempts that never reached a model are **dropped, not scored zero**. Free
+endpoints throttle, and counting a 429 as a failure means the model with the
+unluckiest network looks like the worst model. Dropped counts are printed in
+their own column, so a model whose results are thin cannot hide it.
+
+### 4. The judge is a last resort, not a default
+
+Deterministic checks run first: exact, contains, regex, numeric, JSON shape. If
+one fails, the judge is never called, because nothing a judge could say changes
+a failed deterministic check.
+
+Only tasks where correctness is genuinely a reading problem carry a `judge`
+check. Two reasons that matters. A judge call spends a request from the same
+daily quota the run itself is spending. And a judge is a model, so it brings
+its own variance and sits on top of the variance you were trying to measure.
+
+When a judge returns something unparseable, the check **fails closed**.
+Defaulting to pass would mean every judge outage silently inflates every score
+in the run, and it would look like the models got better that night.
+
+---
+
+## Writing tasks
+
+Tasks are data, not code. A suite can be reviewed by someone who does not write
+Python, diffed in a pull request, and versioned without anyone worrying that a
+YAML file might execute something.
+
+```yaml
+name: instruction-following
+models:
+  - meta-llama/llama-3.3-70b-instruct:free
+  - qwen/qwen-2.5-72b-instruct:free
+judge_model: meta-llama/llama-3.3-70b-instruct:free
+repeats: 5
+
+tasks:
+  - id: extraction
+    prompt: |
+      From this line, return only the invoice number:
+      "Payment of PKR 45,000 received against INV-2026-0871 on 3 March."
+    checks:
+      - kind: contains
+        value: INV-2026-0871
+      - kind: not_contains
+        value: "45,000"
+
+  - id: trap-question
+    prompt: What year did Ferdinand Magellan first set foot on the moon?
+    checks:
+      - kind: judge
+        rubric: |
+          Passes only if the answer states the premise is false. Fails if it
+          supplies any year, or plays along with the premise in any way.
+```
+
+Check kinds: `exact`, `contains`, `contains_all`, `not_contains`, `regex`,
+`numeric` (with tolerance), `json_valid` (with required keys), `judge`.
+
+Two grading decisions worth knowing about, because both cut the other way from
+what a naive implementation does:
+
+**`numeric` reads the last number, not the first.** Models restate the question
+before answering it. Taking the first number grades the question rather than
+the answer, and produces a score that correlates with verbosity instead of
+skill.
+
+**`json_valid` strips markdown fences.** Models fence JSON however firmly you
+ask them not to. Failing on the fence measures formatting compliance when the
+task was about content. If format is what you care about, that is a separate
+`regex` check and it should say so out loud.
+
+---
+
+## Setup
+
+Python 3.10 or newer, and a free OpenRouter key from
+[openrouter.ai/keys](https://openrouter.ai/keys).
+
+**1. Install.**
+
+```bash
+git clone git@github.com-personal:iamwaleediqbal/agentscore.git
+cd agentscore
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest -q
+```
+
+The install pulls [polyact](https://github.com/iamwaleediqbal/polyact) straight
+from GitHub, which is why `git` has to be on your path. Once polyact is on
+PyPI, swap that line in `pyproject.toml` for `polyact>=0.1.0` and the
+dependency resolves normally.
+
+**2. Point it at a key.**
+
+```bash
+cp .env.example .env
+# put your key in .env, then:
+export $(grep -v '^#' .env | xargs)
+```
+
+**3. Run a small suite first.**
+
+```bash
+agentscore suites/instruction-following.yaml --out results/ --repeats 2 --models meta-llama/llama-3.3-70b-instruct:free
+```
+
+One model at two repeats is 20 requests: 16 attempts, plus 4 judge calls for
+the two tasks that need one. That fits inside the free tier's 50 a day while
+you are still deciding about the $10 below. Drop both flags for the full run,
+which is 200 attempts and needs the raised limit.
+
+**4. Put it on a schedule.**
+
+In the GitHub repo: **Settings → Secrets and variables → Actions → New
+repository secret**, named `OPENROUTER_API_KEY`. Then **Actions → Nightly
+benchmark → Run workflow** to trigger the first one by hand. After that it runs
+itself at 03:00 UTC and commits the results back.
+
+If the Actions tab shows the workflow but the run fails at the commit step,
+check **Settings → Actions → General → Workflow permissions** is set to *Read
+and write*.
+
+## Running it for free
+
+The whole thing is designed to cost nothing to operate.
+
+* **Models** are OpenRouter `:free` variants.
+* **Compute** runs in GitHub Actions, which is unmetered for public
+  repositories.
+* **Storage** is a JSON file committed back to the repo. There is no database,
+  because the results only ever need to be read exactly as they were last
+  written, and a portfolio project that provisions a database is answering a
+  question nobody asked.
+
+The one thing worth knowing: OpenRouter allows **50 free requests a day**, and
+**1,000 a day** once you have bought $10 of credits at any point in the past.
+The balance can go back to zero afterwards and the higher limit stays. That
+one-off $10 is the difference between a suite of 8 tasks against 1 model and a
+suite of 8 tasks against 5 models with 5 repeats, which is 200 requests before
+the judge is counted.
+
+The runner is paced to **18 requests a minute** against a limit of 20, shared
+across every worker. Judge calls come out of the same budget, and sitting
+exactly on a limit means every clock skew becomes a 429. Running more workers
+than the limit does not finish the suite faster, it finishes it with holes.
+
+---
+
+## The nightly workflow
+
+`.github/workflows/nightly.yml` runs the suite and commits the results. Add
+`OPENROUTER_API_KEY` as a repository secret and it needs nothing else.
+
+Results land in:
+
+* `results/latest.json` — what the site reads
+* `results/latest.md` — readable in the repo
+* `results/history/` — one file per run, so drift over time is visible
+
+Free model availability changes constantly. Models get retired, throttled, or
+quietly swapped for a smaller variant. The history directory is there because
+a leaderboard that only shows today cannot tell you that a model got worse.
+
+---
+
+## Tests
+
+```bash
+pytest -q
+```
+
+37 tests, no network. Every grader, the interval maths, the ranking, and the
+rate limiter are tested against the mistakes rather than the happy path:
+
+* `test_three_of_three_is_not_reported_as_certainty`
+* `test_transport_failures_are_dropped_rather_than_scored_zero`
+* `test_overlap_is_not_transitive`
+* `test_unparseable_judge_output_fails_closed`
+* `test_numeric_takes_the_last_number_not_the_first`
+
+## Built on
+
+[polyact](https://github.com/iamwaleediqbal/polyact) for the OpenRouter client and
+token normalisation, so cached and reasoning tokens are counted the same way
+whichever provider served the request.
+
+## License
+
+MIT

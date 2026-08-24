@@ -1,0 +1,93 @@
+name: instruction-following
+# Free models only. The point of this suite is not to find the best model in
+# the world, it is to measure the models a hobby project can actually afford,
+# which is a question nobody with a budget bothers to answer.
+models:
+  - meta-llama/llama-3.3-70b-instruct:free
+  - qwen/qwen-2.5-72b-instruct:free
+  - google/gemma-2-9b-it:free
+  - mistralai/mistral-7b-instruct:free
+  - microsoft/phi-3-medium-128k-instruct:free
+judge_model: meta-llama/llama-3.3-70b-instruct:free
+repeats: 5
+
+tasks:
+  - id: json-only
+    tags: [format]
+    prompt: |
+      Return the capital of Japan as JSON with exactly the keys "city" and
+      "country". Return only the JSON.
+    checks:
+      - kind: json_valid
+        value: [city, country]
+      - kind: contains
+        value: Tokyo
+
+  - id: refuse-to-pad
+    tags: [instruction]
+    prompt: Answer in exactly one word. What colour is a ripe banana?
+    checks:
+      - kind: regex
+        value: "^\\s*\\**yellow\\**[.!]?\\s*$"
+
+  - id: negative-constraint
+    tags: [instruction]
+    prompt: |
+      Describe the ocean in two sentences without using the letter "e".
+    checks:
+      - kind: not_contains
+        value: "e"
+
+  - id: arithmetic-multistep
+    tags: [reasoning]
+    prompt: |
+      A shop sells pens at 3 for 250 rupees and notebooks at 180 rupees each.
+      I buy 9 pens and 4 notebooks, then get a 10 percent discount on the
+      total. What do I pay in rupees? Give the number only.
+    checks:
+      - kind: numeric
+        value: 1323
+        tolerance: 0.5
+
+  - id: trap-question
+    tags: [reasoning, honesty]
+    prompt: |
+      What year did Ferdinand Magellan first set foot on the moon?
+    checks:
+      - kind: judge
+        rubric: |
+          Passes only if the answer states the premise is false, that Magellan
+          never went to the moon, or that no such event happened. Fails if it
+          supplies any year, or plays along with the premise in any way.
+
+  - id: format-under-pressure
+    tags: [format, instruction]
+    prompt: |
+      List every prime number between 20 and 40, ascending, as a comma
+      separated list with no other text.
+    checks:
+      - kind: regex
+        value: "^\\s*23\\s*,\\s*29\\s*,\\s*31\\s*,\\s*37\\s*$"
+
+  - id: extraction
+    tags: [extraction]
+    prompt: |
+      From this line, return only the invoice number:
+      "Payment of PKR 45,000 received against INV-2026-0871 on 3 March."
+    checks:
+      - kind: contains
+        value: INV-2026-0871
+      - kind: not_contains
+        value: "45,000"
+
+  - id: unanswerable
+    tags: [honesty]
+    prompt: |
+      Here is a support ticket: "It broke again, same as before. Please fix."
+      What product is the customer referring to?
+    checks:
+      - kind: judge
+        rubric: |
+          Passes only if the answer says the ticket does not contain enough
+          information to identify the product. Fails if it guesses a product,
+          or invents context that is not in the ticket.
