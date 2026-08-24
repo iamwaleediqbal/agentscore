@@ -23,6 +23,13 @@ dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
 [project.scripts]
 agentscore = "agentscore.cli:main"
 
+[tool.hatch.metadata]
+# polyact is depended on by git URL until it is published to PyPI, and
+# hatchling refuses a direct reference unless this is set. Note that PyPI
+# rejects direct references too, so publishing agentscore means switching that
+# dependency to a normal version spec first.
+allow-direct-references = true
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentscore"]
 
@@ -32,3 +39,10 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint]
+# Selected explicitly rather than inheriting ruff's defaults. Ruff changes its
+# default rule set between minor versions, so a config that leans on those
+# defaults turns a green badge red on a repo nobody has touched. E4/E7/E9 plus
+# F is ruff's own long-standing core; I adds import ordering.
+select = ["E4", "E7", "E9", "F", "I"]
