@@ -76,8 +76,10 @@ def build_report(attempts, suite, generated_at: str) -> dict[str, Any]:
         "models": models,
         "notes": [
             "Pass rate is over every repeat, not a single run.",
-            "Intervals are Wilson 95%. Overlapping intervals are marked tied "
-            "rather than ranked.",
+            (
+                "Intervals are Wilson 95%. Overlapping intervals are marked "
+                "tied rather than ranked."
+            ),
             "Attempts that never reached a model are dropped, not scored zero.",
         ],
     }
@@ -127,8 +129,10 @@ def to_markdown(report: dict) -> str:
     lines = [
         f"# {report['suite']}",
         "",
-        f"{report['task_count']} tasks, {report['repeats']} attempts each. "
-        f"Generated {report['generated_at']}.",
+        (
+            f"{report['task_count']} tasks, {report['repeats']} attempts each. "
+            f"Generated {report['generated_at']}."
+        ),
         "",
         "| # | Model | Pass rate | 95% CI | Flaky tasks | Median latency | Dropped |",
         "|---|---|---|---|---|---|---|",

@@ -23,7 +23,7 @@ class Check:
     rubric: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Check":
+    def from_dict(cls, data: dict) -> Check:
         return cls(
             kind=data["kind"],
             value=data.get("value"),
@@ -47,7 +47,7 @@ class Task:
         return any(c.kind == "judge" for c in self.checks)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Task":
+    def from_dict(cls, data: dict) -> Task:
         return cls(
             id=data["id"],
             prompt=data["prompt"],
@@ -67,7 +67,7 @@ class Suite:
     judge_model: str | None = None
 
     @classmethod
-    def load(cls, path: str | Path) -> "Suite":
+    def load(cls, path: str | Path) -> Suite:
         data = yaml.safe_load(Path(path).read_text())
         suite = cls(
             name=data.get("name", Path(path).stem),

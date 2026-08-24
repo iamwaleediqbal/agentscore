@@ -16,6 +16,7 @@ __all__ = [
     "RateLimiter",
     "Suite",
     "Task",
+    "__version__",
     "build_report",
     "grade_deterministic",
     "last_number",
@@ -24,5 +25,4 @@ __all__ = [
     "separated",
     "to_markdown",
     "wilson",
-    "__version__",
 ]
