@@ -16,3 +16,31 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check .
       - run: pytest -q
+
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No dependencies at all for the suite, which is checked before installing.
+      - name: Tests, with nothing installed
+        run: node --test --experimental-strip-types tests/*.test.ts
+
+      # A green suite that could not go red is not a check.
+      - name: Mutation checks
+        run: |
+          python3 tools/mutation-check.py
+          python3 tools/reachability-check.py
+          python3 tools/loop-mutation-check.py
+
+      - run: npm install --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck:runner

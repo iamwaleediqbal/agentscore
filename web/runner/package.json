@@ -1,0 +1,9 @@
+{
+  "name": "clickmail-runner",
+  "private": true,
+  "type": "module",
+  "description": "Kept as its own package so the web build never installs Playwright. Vercel runs npm install at the repo root; if playwright sat in that manifest its install step could pull browser binaries into a build that will never launch one.",
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}

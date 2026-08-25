@@ -1,35 +1,39 @@
 # agentscore
 
-**A small evaluation harness that refuses to overclaim.** Runs a task suite
-against several models, repeats every task, and reports pass rates with
-confidence intervals instead of a single number.
+The harness. It drives an application, grades what the agent left behind, and
+repeats it enough times for the number to mean something.
 
-It benchmarks **free models**, because that is the question nobody with a
-budget bothers to answer: if you are not paying, what can you actually build
-with?
+![CI](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml/badge.svg)
 
-[![CI](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml/badge.svg)](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml)
-![License](https://img.shields.io/badge/license-MIT-green)
+Two measurements live here, and they are not interchangeable:
 
-```bash
-agentscore suites/instruction-following.yaml --out results/
+**Browser agents.** `web/` opens [clickmail](https://github.com/iamwaleediqbal/clickmail)
+in a real browser, fetches the world before the task and after it, and grades one
+snapshot against the other — never the route taken, because there are many
+correct routes. Both snapshots are kept on the run record, so a change to the
+grading logic is retested against every past run without a single model call.
+
+**Instruction following.** The Python suite repeats short tasks across free
+models and reports pass rates as intervals, with overlapping intervals left as
+ties.
+
+## Layout
+
+```
+src/agentscore/   the Python suite: graders, Wilson intervals, ranking
+suites/           task suites for it
+web/              the console (Next.js, static) and the Playwright runner
+web/runner/       what actually drives a browser
 ```
 
-```
-| # | Model                                     | Pass rate | 95% CI  | Flaky | Dropped |
-|---|-------------------------------------------|-----------|---------|-------|---------|
-| 1=| meta-llama/llama-3.3-70b-instruct:free    | 54%       | 39-68%  | 6     | 1       |
-| 1=| qwen/qwen-2.5-72b-instruct:free           | 46%       | 32-61%  | 7     | 1       |
-| 1=| microsoft/phi-3-medium-128k-instruct:free | 41%       | 27-57%  | 5     | 1       |
-| 1=| google/gemma-2-9b-it:free                 | 30%       | 17-46%  | 7     | 3       |
-| 2 | mistralai/mistral-7b-instruct:free        | 22%       | 11-37%  | 5     | 3       |
-```
+The console is static and holds **no key**. It reads committed run records and
+nothing else, so every visitor sees the same evidence and the only way that
+changes is somebody recording a run and pushing it. Recording needs a key and
+happens on a laptop.
 
-Four of those five models are marked **tied at rank 1**. Their pass rates read
-54, 46, 41 and 30 percent, which looks like a clear ordering, and at 40
-attempts each it is not one. Saying so is the entire point of this tool.
-
----
+It shows both system prompts exactly as sent — generated from the same constants
+the runner uses, because a benchmark that paraphrases what it told the model is
+not reproducible by anyone reading it.
 
 ## Four opinions, and what each one prevents
 

@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+
+# Build output
+.next/
+# Directories a stale build was moved aside into, rather than deleted.
+.next-stale*/
+_to_delete/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# Secrets. Never commit a key; everything reads from the environment.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Deployment
+.vercel
+.netlify
+
+# Test and coverage
+coverage/
+.nyc_output/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Playwright scratch (the runs/ directory itself IS committed)
+test-results/
+playwright-report/
+
+runner/node_modules/

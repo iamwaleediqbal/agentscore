@@ -1,0 +1,106 @@
+name: Agent runs
+
+# Started by hand, never on a schedule.
+#
+# It was weekly, and that was wrong for two reasons. Every batch spends this
+# key's free requests, and the daily allowance is what manual recording needs —
+# a run nobody asked for competes with the run someone is waiting on. And a
+# scheduled job that pushes to main is a measurement nobody watched: if a
+# provider changes a model's routing on a Sunday morning, the published numbers
+# change with it and the first anyone knows is the commit log.
+#
+# Recording is a decision, so it is taken by a person. Run it from the Actions
+# tab, or locally with ./record-runs.sh, which shows each task and waits.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model id"
+        required: false
+        default: "openrouter/free"
+      mode:
+        description: "Action space"
+        required: false
+        default: "computer"
+        type: choice
+        options: [computer, tool]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: agent-runs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # A hung browser should not sit here for six hours, which is the default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Fail here rather than six tasks deep with a transport error, which is
+      # what a missing key looks like from inside the runner.
+      - name: Check the key is present
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY is not set in this repository's secrets."
+            exit 1
+          fi
+
+      - run: npm --prefix web install --no-audit --no-fund
+      - run: npm --prefix web/runner install --no-audit --no-fund
+
+      # The binary from runner/'s own install, not whatever npx resolves.
+      # `npx playwright` with no playwright in the root manifest fetches the
+      # latest from the registry, and its browser build does not match the
+      # version runner/ pins — which surfaces much later as "executable doesn't
+      # exist at .../chromium-XXXX".
+      - run: ./web/runner/node_modules/.bin/playwright install --with-deps chromium
+
+      # Nothing to build or serve: the environment is a deployed application in
+      # its own repository, and the runner reaches it over HTTP like anything
+      # else would.
+      - name: Check the gym is reachable
+        run: |
+          if ! curl -sSf -o /dev/null --max-time 20 "${GYM_URL}"; then
+            echo "::error::cannot reach ${GYM_URL}"
+            exit 1
+          fi
+        env:
+          GYM_URL: https://clickmail.vercel.app/gym
+
+      - name: Drive every task with a real browser
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GYM_URL: https://clickmail.vercel.app/gym
+          MODEL: ${{ inputs.model || 'openrouter/free' }}
+          # Explicitly zero. A paid model is refused without a budget, and CI is
+          # not a place to authorise spending: nobody is watching it happen.
+          BUDGET: "0"
+        # --append, because this records ONE action space. Without it the batch
+        # replaces index.json wholesale, so a computer-use run on Sunday deleted
+        # every tool-calling run — and the gap between the two is the entire
+        # comparison this project exists to make.
+        run: npm --prefix web run agent -- --all --append --mode ${{ inputs.mode || 'computer' }}
+
+      - name: Commit the results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add web/public/runs/
+          if git diff --staged --quiet; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git commit -m "runs: ${{ inputs.mode || 'computer' }} $(date -u +%Y-%m-%d)"
+          # main may have moved while Chromium was working. Rebasing the one
+          # commit is safer than a force push and fails loudly on a conflict.
+          git pull --rebase --autostash
+          git push

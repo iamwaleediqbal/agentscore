@@ -1,0 +1,18 @@
+{
+  "//": "The runner is excluded from the app's tsconfig so Playwright's types never reach the Next build. It still needs checking, so it gets its own: npm run typecheck:runner.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["esnext", "dom"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../lib/**/*.ts"],
+  "exclude": ["node_modules"]
+}

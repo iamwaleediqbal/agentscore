@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="agentscore">
+  <!--
+    Three bars and an interval whisker: a score that comes with its own
+    uncertainty, which is the whole argument of this project. Deliberately not
+    the environment's mark — two tabs open on localhost should not look alike.
+  -->
+  <rect width="32" height="32" rx="7" fill="#0b1220"/>
+  <rect x="7" y="17" width="4" height="8" rx="1.2" fill="#3b82f6"/>
+  <rect x="14" y="13" width="4" height="12" rx="1.2" fill="#3b82f6"/>
+  <rect x="21" y="9" width="4" height="16" rx="1.2" fill="#e2e8f0"/>
+  <!-- The whisker on the tallest bar: the number is a range, not a point. -->
+  <path d="M23 5.5 L23 9 M20.6 5.5 L25.4 5.5" stroke="#e2e8f0" stroke-width="1.6" stroke-linecap="round"/>
+</svg>

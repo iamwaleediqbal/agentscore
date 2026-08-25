@@ -1,0 +1,14 @@
+# The Playwright runner never ships.
+#
+# It is a separate package with its own manifest, so Vercel's `npm install` at
+# the project root cannot pull Chromium into a build that will never launch one.
+# Excluding the directory outright is the second line of defence: nothing to
+# upload, nothing to trace, nothing to accidentally import from an app file.
+runner/
+
+# Recording and verification are for a developer machine and CI, not the
+# serverless build.
+record-runs.sh
+verify-deployment.sh
+tests/
+tools/
