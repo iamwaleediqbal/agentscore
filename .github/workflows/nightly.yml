@@ -1,11 +1,22 @@
-name: Nightly benchmark
+name: Benchmark
 
+# Started by hand, never on a schedule.
+#
+# It ran at 03:00 every night. Two things are wrong with that and neither shows
+# up in the file. The free allowance is daily and shared with every other
+# project on this key, so a batch nobody asked for competes with the run someone
+# is waiting on. And a scheduled job with permission to push publishes a
+# measurement nobody watched: if a provider reroutes a model overnight, the
+# committed results change with it and the commit log is the only notice.
+#
+# Measuring is a decision, so a person takes it. Run it from the Actions tab.
 on:
-  schedule:
-    # 03:00 UTC. Free endpoints are least contended outside US working hours,
-    # which measurably reduces dropped attempts.
-    - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      suite:
+        description: "Suite file to run"
+        required: false
+        default: "suites/instruction-following.yaml"
 
 permissions:
   contents: write
@@ -13,23 +24,38 @@ permissions:
 concurrency:
   # Two runs at once would share the same daily quota and both finish with
   # holes in them.
-  group: nightly-benchmark
+  group: benchmark
   cancel-in-progress: false
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    # The default is six hours. A stalled provider should not hold a runner for
+    # a working day before anyone finds out.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Fail here rather than deep in the suite, where an absent key looks like
+      # a transport error against every model in turn.
+      - name: Check the key is present
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          if [ -z "${OPENROUTER_API_KEY}" ]; then
+            echo "::error::OPENROUTER_API_KEY is not set in this repository's secrets."
+            exit 1
+          fi
+
       - run: pip install -e .
 
       - name: Run the suite
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: agentscore suites/instruction-following.yaml --out results/
+        run: agentscore "${{ inputs.suite || 'suites/instruction-following.yaml' }}" --out results/
 
       - name: Commit results
         run: |
@@ -37,5 +63,12 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add results/
           # No changes is a normal outcome, not a failed build.
-          git diff --staged --quiet || git commit -m "benchmark: $(date -u +%Y-%m-%d)"
+          if git diff --staged --quiet; then
+            echo "nothing changed"
+            exit 0
+          fi
+          git commit -m "benchmark: $(date -u +%Y-%m-%d)"
+          # main may have moved while the suite was running. Rebasing the one
+          # commit is safer than a force push and fails loudly on a conflict.
+          git pull --rebase --autostash
           git push

@@ -175,12 +175,11 @@ the two tasks that need one. That fits inside the free tier's 50 a day while
 you are still deciding about the $10 below. Drop both flags for the full run,
 which is 200 attempts and needs the raised limit.
 
-**4. Put it on a schedule.**
+**4. Run it from CI.**
 
 In the GitHub repo: **Settings → Secrets and variables → Actions → New
-repository secret**, named `OPENROUTER_API_KEY`. Then **Actions → Nightly
-benchmark → Run workflow** to trigger the first one by hand. After that it runs
-itself at 03:00 UTC and commits the results back.
+repository secret**, named `OPENROUTER_API_KEY`. Then **Actions → Benchmark →
+Run workflow**, which runs the suite and commits the results back.
 
 If the Actions tab shows the workflow but the run fails at the commit step,
 check **Settings → Actions → General → Workflow permissions** is set to *Read
@@ -212,10 +211,20 @@ than the limit does not finish the suite faster, it finishes it with holes.
 
 ---
 
-## The nightly workflow
+## The benchmark workflow
 
 `.github/workflows/nightly.yml` runs the suite and commits the results. Add
 `OPENROUTER_API_KEY` as a repository secret and it needs nothing else.
+
+**It is started by hand and has no schedule**, which is deliberate. It ran
+nightly, and that was wrong twice over. The free allowance is daily and shared
+with every other project on the same key, so a batch nobody asked for competes
+with the run someone is waiting on. And a scheduled job with permission to push
+publishes a measurement nobody watched: free model availability changes
+constantly — models get retired, throttled, or quietly swapped for a smaller
+variant — so a leaderboard can reorder itself overnight, and the commit log
+would be the only notice anyone got. Measuring is a decision, so a person takes
+it.
 
 Results land in:
 
