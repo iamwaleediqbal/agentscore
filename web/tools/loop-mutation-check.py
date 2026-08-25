@@ -353,6 +353,19 @@ CASES = [
   ('the runner exclusion loses its anchor',
    '.vercelignore', '/runner/', 'runner/  # MUTATED', DEPLOY),
 
+
+  # --- what a 429 means depends on who is paying ---
+
+  ('a paid 429 ends the whole session again, as if the pool were shared',
+   'runner/run.ts', '        if (PAID && !throttled) {', '        if (false) {  // MUTATED', QUOTA),
+
+  ('the retry on a paid 429 stops being bounded to one attempt',
+   'runner/run.ts', '          throttled = true;', '          // MUTATED', QUOTA),
+
+  ('a sentinel rate limit is printed as though it were a measurement',
+   'runner/run.ts', '  if ((data.rate_limit?.requests ?? 0) > 0 && data.rate_limit?.interval) {',
+   '  if (data.rate_limit?.requests && data.rate_limit.interval) {  // MUTATED', QUOTA),
+
 ]
 
 # ---------------------------------------------------------------- safety net

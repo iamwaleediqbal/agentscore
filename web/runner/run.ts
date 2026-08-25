@@ -301,12 +301,19 @@ async function checkQuota(): Promise<void> {
   const parts: string[] = [];
   // Credits, not requests — see the note in record-runs.sh.
   if (typeof data.limit_remaining === "number") {
-    parts.push(`$${data.limit_remaining} of key credit left`);
+    // Four places. The raw figure arrives as $0.872467375, and nine decimals of
+    // a dollar is not information — it is precision standing in for it.
+    parts.push(`$${data.limit_remaining.toFixed(4)} of key credit left`);
   }
   else if (typeof data.limit === "number" && typeof data.usage === "number") {
     parts.push(`${Math.max(0, data.limit - data.usage)} remaining of ${data.limit}`);
   } else if (typeof data.usage === "number") parts.push(`${data.usage} used`);
-  if (data.rate_limit?.requests && data.rate_limit.interval) {
+  // Only a real figure. The endpoint answers `-1` for "not bounded", which is
+  // truthy, so the line read `-1/10s` — a rate limit of minus one request,
+  // printed with the same confidence as the credit balance beside it. A number
+  // that cannot be true is worse than a missing one: it invites the reader to
+  // distrust the whole line.
+  if ((data.rate_limit?.requests ?? 0) > 0 && data.rate_limit?.interval) {
     parts.push(`${data.rate_limit.requests}/${data.rate_limit.interval}`);
   }
   if (data.is_free_tier) parts.push("free tier");
@@ -406,6 +413,8 @@ async function ask(
     // few refuse at the routing layer. Per model, because it is a fact about an
     // endpoint rather than about the request.
     let dropToolChoice = false;
+    /** One wait-and-retry per model on a paid 429, and only one. */
+    let throttled = false;
 
     for (let attempt = 0; attempt < 4; attempt++) {
       // Bound 3: needs no pricing information at all, so it holds even when
@@ -477,12 +486,32 @@ async function ask(
         continue;
       }
 
-      // Quota is an account-level fact. Every model on the free tier draws from
-      // the same pool, so the next one in the chain will answer identically and
-      // the only thing another attempt buys is one fewer request tomorrow.
+      /*
+       * A 429 means two different things, and treating them the same is wrong
+       * in whichever direction you pick.
+       *
+       * On the free tier it is an account-level fact: every free model draws on
+       * the same pool, so the next one in the chain answers identically and
+       * another attempt buys nothing but one fewer request tomorrow. Stopping
+       * immediately is right.
+       *
+       * On a paid model it is that endpoint throttling — the pool is not shared
+       * and not exhausted, and the account has credit sitting in it. Abandoning
+       * a whole session over one burst would be the free-tier reflex applied
+       * where it does not hold. So it gets one wait-and-retry against the same
+       * model; a second 429 is a real refusal and stops the session.
+       */
       if (response.status === 429) {
+        if (PAID && !throttled) {
+          throttled = true;
+          console.log(`  ${model} is throttling — waiting 20s and trying once more`);
+          await new Promise((r) => setTimeout(r, 20_000));
+          continue;
+        }
         throw new QuotaError(
-          `${model} returned 429 — the free tier is out of requests or throttling hard`,
+          PAID
+            ? `${model} returned 429 twice — the provider is refusing, not just busy`
+            : `${model} returned 429 — the free tier is out of requests or throttling hard`,
         );
       }
 

@@ -162,3 +162,45 @@ test("no preflight step reports success it did not verify", () => {
     "the Chromium tick is printed outside the branch that earned it",
   );
 });
+
+test("a 429 means something different when the run is paid for", () => {
+  /*
+   * On the free tier a 429 is an account-level fact: every free model draws on
+   * one pool, the next model in the chain answers identically, and another
+   * attempt buys nothing but one fewer request tomorrow. Stopping is right.
+   *
+   * On a paid model it is that endpoint throttling. The pool is not shared, the
+   * account has credit in it, and ending the session over one burst is the
+   * free-tier reflex applied where it does not hold — a real run hit exactly
+   * this and lost the batch.
+   */
+  const source = read("runner/run.ts");
+
+  assert.match(source, /if \(PAID && !throttled\)/, "a paid 429 still ends the session immediately");
+  assert.match(source, /throttled = true/, "the retry is not bounded to one attempt");
+  // The message has to branch too. Telling someone paying for Gemini that "the
+  // free tier is out of requests" sends them to look at the wrong thing.
+  assert.match(
+    source,
+    /PAID\s*\n?\s*\? `\$\{model\} returned 429 twice/,
+    "a paid 429 is still reported as a free-tier exhaustion",
+  );
+});
+
+test("the quota line never prints a figure that cannot be true", () => {
+  // The endpoint answers `-1` for "not bounded", which is truthy — so the line
+  // read `-1/10s`, a rate limit of minus one request, printed with the same
+  // confidence as the credit balance beside it.
+  const source = read("runner/run.ts");
+
+  assert.match(
+    source,
+    /\(data\.rate_limit\?\.requests \?\? 0\) > 0/,
+    "a sentinel rate limit is printed as though it were a measurement",
+  );
+  assert.match(
+    source,
+    /limit_remaining\.toFixed\(4\)/,
+    "the credit balance is printed to nine decimal places",
+  );
+});
