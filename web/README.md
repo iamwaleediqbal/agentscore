@@ -2,6 +2,8 @@
 
 The console and the browser runner.
 
+**Live:** [agentscore-sigma.vercel.app](https://agentscore-sigma.vercel.app)
+
 This is the half of the harness that drives a real application. The Python
 suite in the repository root measures instruction following against short
 prompts; this measures whether a model can operate an interface, and grades the

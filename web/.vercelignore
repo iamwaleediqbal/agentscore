@@ -1,14 +1,25 @@
-# The Playwright runner never ships.
+# Every pattern here is anchored with a leading slash, and that is not tidiness.
 #
-# It is a separate package with its own manifest, so Vercel's `npm install` at
-# the project root cannot pull Chromium into a build that will never launch one.
-# Excluding the directory outright is the second line of defence: nothing to
-# upload, nothing to trace, nothing to accidentally import from an app file.
-runner/
+# `.vercelignore` follows .gitignore matching, where a pattern without a slash
+# matches a directory of that name at ANY depth. `tools/` was meant to keep the
+# mutation scripts out of the build. It also matched `app/tools/` — the route
+# that shows both system prompts verbatim — so that page was never uploaded, and
+# the deployed nav linked to a 404 while every local check passed. Nothing in
+# this repository could have caught it, because the file was correct about the
+# directory it was named for.
+#
+# tests/deployment.test.ts now fails if any pattern here would swallow a route.
+
+# The Playwright runner never ships. It is a separate package with its own
+# manifest, so Vercel's `npm install` at the project root cannot pull Chromium
+# into a build that will never launch one. Excluding the directory outright is
+# the second line of defence: nothing to upload, nothing to trace, nothing to
+# accidentally import from an app file.
+/runner/
 
 # Recording and verification are for a developer machine and CI, not the
 # serverless build.
-record-runs.sh
-verify-deployment.sh
-tests/
-tools/
+/record-runs.sh
+/verify-deployment.sh
+/tests/
+/tools/

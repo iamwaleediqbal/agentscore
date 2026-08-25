@@ -36,6 +36,8 @@ function sourceFiles(dir: string): string[] {
 
 const FILES = APP_DIRS.flatMap(sourceFiles);
 
+const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
+
 test("the app source is large enough that a passing scan means something", () => {
   // A guard that scans nothing passes forever. This asserts the scan has input.
   assert.ok(FILES.length > 20, `expected to scan the app, found ${FILES.length} files`);
@@ -225,4 +227,85 @@ test("the verifier treats any success from those routes as a failure", () => {
     assert.match(branch, /\bbad\b/, `a 2xx answer is not treated as a failure: ${branch.trim()}`);
   }
   assert.match(script, /exit 1/, "and the script must exit non-zero");
+});
+
+/**
+ * Every route this app serves, by directory.
+ *
+ * Read off the filesystem rather than listed here, because a list would agree
+ * with itself and the whole point is to catch a route that exists in the repo
+ * and not on the deployment.
+ */
+function routeDirs(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const next = path.join(dir, entry.name);
+      const relNext = rel ? `${rel}/${entry.name}` : entry.name;
+      out.push(relNext);
+      walk(next, relNext);
+    }
+  };
+  walk(path.join(ROOT, "app"), "");
+  return out;
+}
+
+test("no ignore pattern can swallow a route", () => {
+  /*
+   * The failure this exists for, and it reached production.
+   *
+   * `.vercelignore` follows .gitignore matching: a pattern with no slash in it
+   * matches a directory of that name at ANY depth. `tools/` was written to keep
+   * the mutation scripts out of the build, and it did — and it also matched
+   * `app/tools/`, the route that shows both system prompts verbatim. That page
+   * was never uploaded. The nav linked to it, the link 404'd, and every check in
+   * this repository passed, because the pattern was perfectly correct about the
+   * directory it was named for.
+   *
+   * Anchoring with a leading slash confines a pattern to the project root.
+   */
+  const ignore = read(".vercelignore")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+
+  const routes = routeDirs();
+
+  for (const pattern of ignore) {
+    if (pattern.startsWith("/")) continue; // anchored to the root; cannot reach app/
+
+    const name = pattern.replace(/\/$/, "");
+    const swallowed = routes.filter(
+      (route) => route === name || route.split("/").includes(name),
+    );
+
+    assert.deepEqual(
+      swallowed,
+      [],
+      `the unanchored pattern "${pattern}" also excludes app/${swallowed[0]} — anchor it as "/${pattern}"`,
+    );
+  }
+});
+
+test("every pattern in .vercelignore is anchored", () => {
+  // Stronger than the test above and the reason it can stay simple: an
+  // unanchored pattern is a trap even when nothing collides with it today,
+  // because the collision arrives later as a new route and nothing local fails.
+  const unanchored = read(".vercelignore")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .filter((line) => !line.startsWith("/"));
+
+  assert.deepEqual(unanchored, [], "these match at any depth, including inside app/");
+});
+
+test("the page that shows the system prompts is a route that ships", () => {
+  // Named specifically, because it is the one that was lost and because a
+  // benchmark that will not show what it told the model is not reproducible.
+  assert.ok(
+    routeDirs().includes("tools"),
+    "app/tools is gone — the system prompts are no longer shown anywhere",
+  );
 });

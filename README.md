@@ -5,6 +5,9 @@ repeats it enough times for the number to mean something.
 
 ![CI](https://github.com/iamwaleediqbal/agentscore/actions/workflows/ci.yml/badge.svg)
 
+**Live:** [agentscore-sigma.vercel.app](https://agentscore-sigma.vercel.app) — the console, reading committed runs.
+The environment it drives is [clickmail-sigma.vercel.app/gym](https://clickmail-sigma.vercel.app/gym).
+
 Two measurements live here, and they are not interchangeable:
 
 **Browser agents.** `web/` opens [clickmail](https://github.com/iamwaleediqbal/clickmail)

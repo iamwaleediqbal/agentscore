@@ -345,6 +345,14 @@ CASES = [
    'components/harness/timeline.tsx', '                      {aimOf(entry) && (',
    '                      {false && (  {/* MUTATED */}', LAYOUT),
 
+  # --- what actually reaches the deployment ---
+
+  ('an ignore pattern goes back to matching at any depth, swallowing a route',
+   '.vercelignore', '\n/tests/\n/tools/\n', '\n/tests/\ntools/  # MUTATED\n', DEPLOY),
+
+  ('the runner exclusion loses its anchor',
+   '.vercelignore', '/runner/', 'runner/  # MUTATED', DEPLOY),
+
 ]
 
 # ---------------------------------------------------------------- safety net
