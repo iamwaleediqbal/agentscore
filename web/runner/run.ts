@@ -63,7 +63,29 @@ import {
  * it the way anything else would, over HTTP, with no privileged access and no
  * shared process. Point this at a local clickmail while developing one.
  */
-const GYM_URL = process.env.GYM_URL ?? "https://clickmail.vercel.app/gym";
+/**
+ * The environment to drive, always resolved to the page that publishes the
+ * contract.
+ *
+ * The mailbox lives at `/gym`. The site root is a landing page explaining what
+ * the project is — a perfectly good page that publishes no contract, so a run
+ * pointed at it dies with "the gym never published its automation contract",
+ * which is a true message about the wrong problem.
+ *
+ * That is an easy mistake to make from a browser: you copy the address bar. So
+ * a bare origin is corrected rather than rejected, and anything already ending
+ * in /gym is left alone.
+ */
+function resolveGymUrl(raw: string): string {
+  const url = new URL(raw);
+  const path = url.pathname.replace(/\/+$/, "");
+  if (!path.endsWith("/gym")) url.pathname = `${path}/gym`;
+  return url.toString();
+}
+
+const GYM_URL = resolveGymUrl(
+  process.env.GYM_URL ?? "https://clickmail-sigma.vercel.app/gym",
+);
 const MODEL = process.env.MODEL ?? "openrouter/free";
 /**
  * An override, not the budget.

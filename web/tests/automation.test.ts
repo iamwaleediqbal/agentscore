@@ -100,3 +100,52 @@ test("the version is checked, so a mismatched pair fails loudly", () => {
   assert.match(driver, /AUTOMATION_VERSION/, "the driver never checks the contract version");
   assert.match(driver, /speaks automation v/, "and it should say so in words when they differ");
 });
+
+test("a run always lands on the page that publishes the contract", () => {
+  /*
+   * The mailbox is at /gym. The site root is a landing page — a perfectly good
+   * page that publishes no contract, so a run pointed at it fails with "the gym
+   * never published its automation contract": a true message about the wrong
+   * problem.
+   *
+   * Copying the address bar out of a browser gives you the bare origin, so that
+   * is corrected rather than rejected.
+   */
+  const run = code("runner/run.ts");
+
+  assert.match(run, /function resolveGymUrl/, "the runner does not normalise the target");
+  assert.match(run, /endsWith\("\/gym"\)/, "and it must check for the gym path specifically");
+  assert.match(
+    run,
+    /const GYM_URL = resolveGymUrl\(/,
+    "the normalised value has to be the one actually used",
+  );
+
+  // Replicated here rather than imported, because run.ts starts a browser on
+  // import. If the two ever disagree, this is the copy that is wrong.
+  const resolve = (raw: string) => {
+    const url = new URL(raw);
+    const path = url.pathname.replace(/\/+$/, "");
+    if (!path.endsWith("/gym")) url.pathname = `${path}/gym`;
+    return url.toString();
+  };
+
+  for (const [given, expected] of [
+    ["https://clickmail-sigma.vercel.app", "https://clickmail-sigma.vercel.app/gym"],
+    ["https://clickmail-sigma.vercel.app/", "https://clickmail-sigma.vercel.app/gym"],
+    ["https://clickmail-sigma.vercel.app/gym", "https://clickmail-sigma.vercel.app/gym"],
+    ["http://localhost:3000", "http://localhost:3000/gym"],
+  ] as const) {
+    assert.equal(resolve(given), expected, `${given} did not resolve to the gym`);
+  }
+});
+
+test("the default target is the deployed environment", () => {
+  // Recording needs nothing running locally: the environment is a public site,
+  // and the harness reaches it the way anything else would.
+  assert.match(
+    code("runner/run.ts"),
+    /https:\/\/clickmail-sigma\.vercel\.app\/gym/,
+    "the runner no longer defaults to the deployed gym",
+  );
+});

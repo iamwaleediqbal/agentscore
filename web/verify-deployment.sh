@@ -7,7 +7,7 @@
 # which is not visible from this repository — so it is checked from outside,
 # against the running sites, the way anyone else would probe them.
 #
-#   ./verify-deployment.sh https://agentscore.vercel.app https://clickmail.vercel.app
+#   ./verify-deployment.sh https://agentscore.vercel.app https://clickmail-sigma.vercel.app
 #
 # It only reads. Every request it makes is one it expects to be refused or to
 # return a static file.

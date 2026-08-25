@@ -270,6 +270,17 @@ CASES = [
    'hooks/use-runs.ts', '    const measured = published.length ? published : SEEDED_RUNS;',
                         '    window.localStorage.setItem("runs", "1");  // MUTATED\n    const measured = published.length ? published : SEEDED_RUNS;', SPLIT),
 
+
+  # --- the agent has to land on the page that publishes the contract ---
+
+  ('the runner stops correcting a bare origin, so it lands on the landing page',
+   'runner/run.ts', '  if (!path.endsWith("/gym")) url.pathname = `${path}/gym`;',
+                        '  // MUTATED', SPLIT),
+
+  ('the default target stops being the deployed environment',
+   'runner/run.ts', 'process.env.GYM_URL ?? "https://clickmail-sigma.vercel.app/gym",',
+                        'process.env.GYM_URL ?? "http://localhost:3000/gym",  // MUTATED', SPLIT),
+
 ]
 
 # ---------------------------------------------------------------- safety net

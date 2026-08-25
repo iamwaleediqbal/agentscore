@@ -5,7 +5,7 @@ than the route the agent took.** The model is shown a screenshot of a live mail
 client and nothing else, answers with coordinates, and the harness fires a real
 pointer sequence at that point. Finding the control is part of the task.
 
-Live: `https://clickmail.vercel.app`
+Live: `https://clickmail-sigma.vercel.app`
 
 ![CI](https://github.com/iamwaleediqbal/clickmail/actions/workflows/ci.yml/badge.svg)
 
@@ -287,7 +287,7 @@ and add one environment variable before deploying:
 
 | Name | Value |
 |---|---|
-| `SITE_URL` | the URL Vercel gave you, e.g. `https://clickmail.vercel.app` |
+| `SITE_URL` | the URL Vercel gave you, e.g. `https://clickmail-sigma.vercel.app` |
 
 OpenRouter attributes free-tier usage to that header. It is not required for
 the app to work, and setting it keeps the demo from looking like an anonymous

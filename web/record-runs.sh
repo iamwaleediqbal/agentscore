@@ -232,7 +232,16 @@ ok "Chromium"
 # anything.
 #
 # Point GYM_URL at a local clickmail while you are working on one.
-GYM_URL="${GYM_URL:-https://clickmail.vercel.app/gym}"
+GYM_URL="${GYM_URL:-https://clickmail-sigma.vercel.app/gym}"
+
+# The mailbox is at /gym; the site root is a landing page that publishes no
+# contract. Corrected rather than rejected, because copying the address bar out
+# of a browser gives you the bare origin — and because this check must test the
+# same URL the runner will actually open.
+case "$GYM_URL" in
+  */gym|*/gym/) : ;;
+  *)            GYM_URL="${GYM_URL%/}/gym" ;;
+esac
 
 say "Checking the environment is reachable"
 printf '  %s\n' "$GYM_URL"

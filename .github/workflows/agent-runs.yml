@@ -74,12 +74,12 @@ jobs:
             exit 1
           fi
         env:
-          GYM_URL: https://clickmail.vercel.app/gym
+          GYM_URL: https://clickmail-sigma.vercel.app/gym
 
       - name: Drive every task with a real browser
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          GYM_URL: https://clickmail.vercel.app/gym
+          GYM_URL: https://clickmail-sigma.vercel.app/gym
           MODEL: ${{ inputs.model || 'openrouter/free' }}
           # Explicitly zero. A paid model is refused without a budget, and CI is
           # not a place to authorise spending: nobody is watching it happen.
