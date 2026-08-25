@@ -61,6 +61,7 @@ const ALLOWED: Record<string, (folder: Folder) => boolean> = {
   reply: () => true,
   forward: () => false, // no control exists
   send: () => false, // nothing is composed in this fixture
+  save_draft: () => false, // likewise: there is no draft open to file
   discard: () => true,
   finish: () => true,
 };
@@ -280,4 +281,88 @@ test("nothing about the mailbox survives a clone", () => {
   copy.emails[0]!.labels.push("changed");
   assert.notEqual(state.emails[0]!.subject, "changed", "clone shares email objects");
   assert.deepEqual(state.emails[0]!.labels, [], "clone shares label arrays");
+});
+
+/*
+ * Saving a draft.
+ *
+ * The Save button used to dispatch `compose`, which writes the text into the
+ * open composer and leaves it there. Nothing reached the drafts folder, the
+ * count on the rail did not move, and Discard threw the work away — so a
+ * person clicking Save saw the app do nothing, and an agent asked to save a
+ * draft changed only a transient blob the next action cleared.
+ */
+test("saving a draft files it in drafts and closes the composer", () => {
+  const opened = applyAction(base(), {
+    name: "compose",
+    args: { to: "ayesha@northwind.example", subject: "Payment Friday", body: "Going out Friday." },
+  });
+  assert.equal(opened.ok, true);
+
+  const before = opened.state.emails.filter((e) => e.folder === "drafts").length;
+  const saved = applyAction(opened.state, { name: "save_draft", args: {} });
+  assert.equal(saved.ok, true, "save_draft was refused with a draft open");
+
+  const drafts = saved.state.emails.filter((e) => e.folder === "drafts");
+  assert.equal(drafts.length, before + 1, "the draft did not reach the drafts folder");
+
+  const filed = drafts.find((e) => e.subject === "Payment Friday");
+  assert.ok(filed, "the saved draft is not the one that was written");
+  assert.equal(filed.to, "ayesha@northwind.example");
+  assert.equal(filed.body, "Going out Friday.");
+  assert.equal(filed.folder, "drafts");
+
+  assert.equal(saved.state.composer, null, "the composer stayed open after saving");
+});
+
+test("a saved draft survives the composer closing, which is the whole point", () => {
+  // A change to `composer` is gone the moment the composer closes, and a
+  // verdict cannot be computed from something absent from the final snapshot.
+  const opened = applyAction(base(), {
+    name: "compose",
+    args: { to: "a@b.example", subject: "Later", body: "…" },
+  });
+  const saved = applyAction(opened.state, { name: "save_draft", args: {} });
+  const after = applyAction(saved.state, { name: "discard", args: {} });
+
+  assert.ok(
+    after.state.emails.some((e) => e.folder === "drafts" && e.subject === "Later"),
+    "discarding after saving threw the saved draft away",
+  );
+});
+
+test("an empty draft is refused rather than filed", () => {
+  const opened = applyAction(base(), { name: "compose", args: {} });
+  const saved = applyAction(opened.state, { name: "save_draft", args: {} });
+
+  assert.equal(saved.ok, false, "an empty draft was filed");
+  assert.ok(saved.state.composer, "a refused save closed the composer and lost the draft");
+});
+
+test("save_draft with nothing open is refused, not a crash", () => {
+  const saved = applyAction(base(), { name: "save_draft", args: {} });
+  assert.equal(saved.ok, false);
+});
+
+test("draft ids stay unique after one is deleted", () => {
+  // The same collision `send` has: save, delete, save again, and the length is
+  // back where it started, so a counted id repeats and every later action lands
+  // on whichever message `find` happens to reach first.
+  let state = base();
+  for (const subject of ["One", "Two"]) {
+    state = applyAction(state, { name: "compose", args: { to: "a@b.example", subject, body: "x" } }).state;
+    state = applyAction(state, { name: "save_draft", args: {} }).state;
+  }
+
+  const first = state.emails.find((e) => e.subject === "One");
+  assert.ok(first);
+  state = applyAction(state, { name: "open", args: { id: first.id } }).state;
+  state = applyAction(state, { name: "trash", args: { id: first.id } }).state;
+  state = applyAction(state, { name: "delete_forever", args: { id: first.id } }).state;
+
+  state = applyAction(state, { name: "compose", args: { to: "a@b.example", subject: "Three", body: "x" } }).state;
+  state = applyAction(state, { name: "save_draft", args: {} }).state;
+
+  const ids = state.emails.map((e) => e.id);
+  assert.equal(new Set(ids).size, ids.length, "two messages share an id");
 });

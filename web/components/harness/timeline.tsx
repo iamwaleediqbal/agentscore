@@ -163,6 +163,21 @@ export function Timeline({
                           {ACTION_LOOK[entry.status].label}
                         </span>
                       </div>
+                      {/*
+                        Where the click actually went, and why.
+                        
+                        A computer-use run answers in numbers whose meaning is
+                        not obvious — the same pair is a legal pixel coordinate
+                        and a legal 0-1000 grid coordinate — so the conversion is
+                        the difference between "the model missed" and "we
+                        converted it wrongly". It was recorded on every action
+                        and shown on none of them.
+                      */}
+                      {aimOf(entry) && (
+                        <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                          {aimOf(entry)}
+                        </p>
+                      )}
                       {entry.error && (
                         <p className="mt-1 text-xs text-status-critical">{entry.error}</p>
                       )}
@@ -248,6 +263,25 @@ function Marker({ entry }: { entry: TimelineEntry }) {
       <Icon className="size-3.5 text-muted-foreground" />
     </span>
   );
+}
+
+/**
+ * The coordinate conversion for one action, or nothing.
+ *
+ * `metadata` is deliberately untyped — it carries whatever the driver that
+ * produced the run thought was worth keeping — so every field is checked rather
+ * than asserted. A run recorded before this was captured simply has no aim.
+ */
+function aimOf(entry: { metadata?: Record<string, unknown> }): string | null {
+  const point = entry.metadata?.point;
+  if (!point || typeof point !== "object") return null;
+
+  const { label, calibrated } = point as { label?: unknown; calibrated?: unknown };
+  if (typeof label !== "string" || !label) return null;
+
+  return typeof calibrated === "string"
+    ? `${label}  ·  space settled as ${calibrated} from the page, and pinned`
+    : label;
 }
 
 function Row({ label, meta }: { label: string; meta?: string }) {

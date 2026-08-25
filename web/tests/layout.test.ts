@@ -130,3 +130,60 @@ test("seeded samples retire once real runs are published", () => {
   // exactly the confusion the badge exists to prevent.
   assert.match(source, /published\.length \? published : SEEDED_RUNS/);
 });
+
+test("a run shows the comparison its verdict was computed from", () => {
+  // The record has carried both snapshots for a while and the page showed
+  // neither, so the reader got a word — "Incomplete" — and no way to check it.
+  // A benchmark that grades on final state and never displays the state is
+  // asking to be taken on faith.
+  // The usage, not the import. An import left behind by a deleted element is
+  // exactly the shape this assertion has to survive — it matched the import
+  // line and reported the guard green with the panel gone from the page.
+  const detail = read("app/runs/[id]/page.tsx");
+  assert.match(
+    detail,
+    /<StateComparison\s+run=\{run\}\s*\/>/,
+    "the run detail no longer renders the state comparison",
+  );
+
+  const panel = read("components/harness/state-comparison.tsx");
+  assert.match(panel, /grade\.required/, "the required changes are not rendered");
+  assert.match(panel, /grade\.extra/, "the unrequested changes are not rendered");
+  assert.match(panel, /grade\.missing/, "nothing marks a required change as missing");
+  assert.match(panel, /run\.snapshots/, "the snapshot pair is not rendered");
+});
+
+test("an unscored run says so rather than showing an empty comparison", () => {
+  // A run that never reached a model has no verdict. Rendering it as "nothing
+  // was required and nothing changed" would read as a pass.
+  const panel = read("components/harness/state-comparison.tsx");
+  assert.match(panel, /if \(!grade\)/, "a missing verdict is not handled separately");
+  assert.match(panel, /absent measurement/, "an unscored run is not explained as one");
+});
+
+test("a wide snapshot scrolls inside itself, not the page", () => {
+  // A JSON dump is the widest thing on the page by a distance. Without its own
+  // scroll container the body scrolls sideways, which breaks the layout of
+  // every other element at once.
+  const panel = read("components/harness/state-comparison.tsx");
+  assert.match(panel, /overflow-auto/, "the snapshot pane has no scroll container");
+});
+
+test("a computer-use action shows where the click actually went", () => {
+  // The same pair of numbers is a legal pixel coordinate and a legal 0-1000
+  // grid coordinate, so the conversion is the difference between "the model
+  // missed" and "we converted it wrongly". It was recorded on every action and
+  // rendered on none of them, which left the timeline unable to answer the one
+  // question a computer-use run is read to answer.
+  const timeline = read("components/harness/timeline.tsx");
+
+  // The guard, not just the call. Asserting on the name alone matched the
+  // render inside the guard, so switching the guard off left the assertion
+  // passing with nothing on screen.
+  assert.match(timeline, /\{aimOf\(entry\) && \(/, "the conversion is not rendered");
+  assert.match(timeline, /metadata\?\.point/, "the point metadata is not read");
+  assert.match(timeline, /space settled as/, "a calibrated turn does not say so");
+  // Untyped metadata: every field checked, none asserted. A run recorded before
+  // this was captured has no aim and must render without one.
+  assert.match(timeline, /typeof label !== "string"/, "a missing label would throw rather than skip");
+});

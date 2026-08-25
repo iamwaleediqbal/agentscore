@@ -20,7 +20,7 @@ function fakeStorage(budget: number) {
       },
       removeItem: (key: string) => void map.delete(key),
     },
-    written: () => map.get("clickmail.runs.v1") ?? null,
+    written: () => map.get("agentscore.runs.v1") ?? null,
   };
 }
 

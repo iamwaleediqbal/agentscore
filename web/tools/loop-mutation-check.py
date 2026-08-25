@@ -31,7 +31,8 @@ PERSIST = ["tests/persistence.test.ts"]
 QUOTA = ["tests/quota.test.ts"]
 FLOW = ["tests/workflows.test.ts"]
 DEPLOY = ["tests/deployment.test.ts"]
-BUDGET = ["tests/solvable.test.ts", "tests/computer.test.ts"]
+LAYOUT = ["tests/layout.test.ts"]
+COORDS = ["tests/computer.test.ts"]
 BUDGET = ["tests/solvable.test.ts", "tests/computer.test.ts"]
 CLI = ["tests/workflows.test.ts", "tests/runner-cli.test.ts"]
 ALL = ["tests/agent-loop.test.ts", "tests/solvable.test.ts", "tests/grade.test.ts",
@@ -278,8 +279,71 @@ CASES = [
                         '  // MUTATED', SPLIT),
 
   ('the default target stops being the deployed environment',
-   'runner/run.ts', 'process.env.GYM_URL ?? "https://clickmail-sigma.vercel.app/gym",',
-                        'process.env.GYM_URL ?? "http://localhost:3000/gym",  // MUTATED', SPLIT),
+   'lib/environment/contract.ts',
+   'export const GYM_HOME = "https://clickmail-sigma.vercel.app/gym";',
+   'export const GYM_HOME = "http://localhost:3000/gym";  // MUTATED', SPLIT),
+
+  ('the shared address stops being absolute, so it resolves against this origin',
+   'lib/environment/contract.ts',
+   'export const GYM_HOME = "https://clickmail-sigma.vercel.app/gym";',
+   'export const GYM_HOME = "/gym";  // MUTATED', SPLIT),
+
+  ('the interface links the environment as one of its own routes again',
+   'components/app-shell.tsx', '<a href={GYM_HOME} target="_blank" rel="noreferrer">',
+                        '<a href="/gym" target="_blank" rel="noreferrer">  {/* MUTATED */}', SPLIT),
+
+  # --- the verdict has to be checkable, not just stated ---
+
+  ('the run detail stops showing the comparison behind the verdict',
+   'app/runs/[id]/page.tsx', '<StateComparison run={run} />',
+                        '{/* MUTATED */}', LAYOUT),
+
+  ('the comparison stops marking which required changes never happened',
+   'components/harness/state-comparison.tsx', '  const missing = new Set(grade.missing.map((c) => c.path));',
+                        '  const missing = new Set<string>();  // MUTATED', LAYOUT),
+
+  ('an unscored run is drawn as an empty comparison instead of an absent one',
+   'components/harness/state-comparison.tsx', '  if (!grade) {',
+                        '  if (false) {  // MUTATED', LAYOUT),
+
+
+  # --- a preflight tick that cannot fail ---
+
+  ('the app install is reported green without anything being installed',
+   'record-runs.sh', '[ -f node_modules/next/package.json ] \\\n  || die',
+                        '# MUTATED', QUOTA),
+
+  ('the Chromium tick goes back outside the branch that earned it',
+   'record-runs.sh', 'if ./runner/node_modules/.bin/playwright install chromium >/dev/null 2>&1; then\n  ok "Chromium"\nelse',
+                        'if ! ./runner/node_modules/.bin/playwright install chromium >/dev/null 2>&1; then\n  ok "Chromium"  # MUTATED\nelse', QUOTA),
+
+
+  # --- the coordinate space, which is the one that silently costs money ---
+
+  ('the grid reading stops being offered, so an undecided point reads as settled',
+   'lib/environment/computer.ts',
+   '    ambiguous: !assume && plausible.length > 0,',
+   '    ambiguous: false,  // MUTATED', COORDS),
+
+  ('the runner stops settling the space against the page',
+   'runner/run.ts', '          const verdict = await calibrate(page, read, read.alternate);',
+   '          const verdict = null;  // MUTATED', COORDS),
+
+  ('the settled space is not applied to the turns after it',
+   'runner/run.ts', '            ? resolvePoint(x, y, VIEWPORT, convention ?? undefined)',
+   '            ? resolvePoint(x, y, VIEWPORT)  // MUTATED', COORDS),
+
+  ('calibration commits to an answer the page never gave',
+   'runner/driver.ts', '  if (hit(here) === hit(there)) return null;',
+   '  // MUTATED', COORDS),
+
+  ('any element counts as a hit, so both readings always land on something',
+   'runner/driver.ts', '  const hit = (what: string) => what !== "nothing" && !GENERIC.has(what);',
+   '  const hit = (what: string) => what !== "nothing";  // MUTATED', COORDS),
+
+  ('the timeline stops showing where the click actually went',
+   'components/harness/timeline.tsx', '                      {aimOf(entry) && (',
+   '                      {false && (  {/* MUTATED */}', LAYOUT),
 
 ]
 
@@ -317,6 +381,34 @@ for _sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
     # sys.exit from a handler raises SystemExit, so atexit still runs.
     signal.signal(_sig, lambda *_: sys.exit(130))
 
+
+# ---------------------------------------------------------------- baseline
+#
+# A mutation is "caught" when the suite goes red. That inference only holds if
+# the suite was green to begin with — and for a long time it was not: both these
+# tools ran a test file that had been deleted, node exited non-zero because the
+# path did not resolve, and every single case reported CAUGHT without a mutation
+# ever being applied. Two of the guards behind that were, in fact, guarding
+# nothing.
+#
+# So each distinct test list is run once, unmutated, before anything is edited.
+# A list that is already red proves nothing about any mutation that uses it, and
+# says so.
+
+_BASELINE = {}
+
+
+def baseline_ok(tests):
+    key = tuple(tests)
+    if key not in _BASELINE:
+        r = subprocess.run(["node", "--test", "--experimental-strip-types", *tests],
+                           capture_output=True, text=True)
+        _BASELINE[key] = r.returncode == 0
+        if not _BASELINE[key]:
+            print(f"  BASELINE RED: {' '.join(tests)}")
+    return _BASELINE[key]
+
+
 results = []
 for name, rel, old, new, tests in CASES:
     path = pathlib.Path(rel)
@@ -329,6 +421,9 @@ for name, rel, old, new, tests in CASES:
     original = _stash(path)
     if old not in original:
         results.append((name, "SKIP - anchor not found"))
+        continue
+    if not baseline_ok(tests):
+        results.append((name, "*** BASELINE RED - proves nothing ***"))
         continue
     path.write_text(original.replace(old, new, 1), encoding="utf-8")
     try:

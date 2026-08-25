@@ -208,6 +208,9 @@ export async function perform(page: Page, action: Action): Promise<void> {
     case "send":
       return click(page, "composer-send");
 
+    case "save_draft":
+      return click(page, "composer-save");
+
     case "discard":
       return click(page, "composer-discard");
 
@@ -288,7 +291,7 @@ export interface ComputerOutcome {
 }
 
 /** What sits under a point, described the same way the in-page driver describes it. */
-async function targetAt(page: Page, x: number, y: number): Promise<string> {
+export async function targetAt(page: Page, x: number, y: number): Promise<string> {
   return page.evaluate(
     ([px, py]: readonly [number, number]) => {
       const element = document.elementFromPoint(px, py);
@@ -305,6 +308,53 @@ async function targetAt(page: Page, x: number, y: number): Promise<string> {
     [x, y] as const,
   );
 }
+
+/**
+ * Which of two readings of the same numbers is the one the model meant.
+ *
+ * The per-point rules in `resolvePoint` cannot settle this and never could: the
+ * 0-1000 grid sits inside the pixel range of a 1180x720 image, so "500, 400" is
+ * a legal pixel pair and a legal grid pair, and no property of the numbers
+ * separates them. What separates them is the page. One reading lands on a
+ * control and the other lands on nothing.
+ *
+ * This costs no model call — it is two `elementFromPoint` lookups on a page
+ * that is already open — and it settles the question with evidence rather than
+ * with a table of which provider is believed to do what. That matters because
+ * the belief is often wrong: a model documented as answering in a normalised
+ * grid will answer in pixels when the prompt asks it to, and a model documented
+ * as answering in pixels sometimes does not.
+ *
+ * Returns null when the page cannot tell them apart — both land on something,
+ * or neither does. An undecided calibration must not be pinned; the caller
+ * keeps the documented default and tries again on the next ambiguous click.
+ */
+export async function calibrate(
+  page: Page,
+  primary: { x: number; y: number },
+  alternate: { x: number; y: number },
+): Promise<"primary" | "alternate" | null> {
+  const [here, there] = await Promise.all([
+    targetAt(page, primary.x, primary.y),
+    targetAt(page, alternate.x, alternate.y),
+  ]);
+
+  // "Landed on something" means an actual control, not merely an element. Every
+  // point on a page is inside *some* tag, so testing for an element at all
+  // would call every reading a hit and decide nothing.
+  const hit = (what: string) => what !== "nothing" && !GENERIC.has(what);
+
+  if (hit(here) === hit(there)) return null;
+  return hit(here) ? "primary" : "alternate";
+}
+
+/**
+ * Tags that mean "the page", not "a control".
+ *
+ * `targetAt` falls back to a tag name when a point is not inside anything
+ * interactive. Those answers are not evidence of aim.
+ */
+const GENERIC = new Set(["html", "body", "main", "div", "section", "span", "p", "nothing"]);
 
 const KEYS: Record<string, string> = {
   enter: "Enter",

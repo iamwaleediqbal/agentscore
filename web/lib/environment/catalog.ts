@@ -106,6 +106,12 @@ export const CATALOG: Record<ActionName, ActionDoc> = {
     clicks: 1,
   },
   send: { args: "—", reach: "composer", effect: "Sends the open draft. Fails with no recipient.", clicks: 1 },
+  save_draft: {
+    args: "—",
+    reach: "composer",
+    effect: "Files the open draft in Drafts and closes the composer.",
+    clicks: 1,
+  },
   discard: { args: "—", reach: "composer", effect: "Throws the draft away.", clicks: 1 },
   finish: { args: "—", reach: "global", effect: "Ends the run. The agent is claiming it is done.", clicks: 1 },
 };

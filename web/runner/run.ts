@@ -23,11 +23,14 @@ import { chromium } from "playwright";
 import { isClassifierVerdict } from "../lib/agent/classify.ts";
 import { parseTurn } from "../lib/agent/parse.ts";
 import {
+  type Convention,
+  type Resolved,
   type Viewport,
   computerPrompt,
   describeResolution,
   resolvePoint,
 } from "../lib/environment/computer.ts";
+import { GYM_HOME } from "../lib/environment/contract.ts";
 import { MAILBOX } from "../lib/environment/describe.ts";
 import { grade } from "../lib/harness/grade.ts";
 import {
@@ -47,6 +50,7 @@ import { usageOf } from "../lib/harness/entries.ts";
 import { mergeRecorded, type RunRecord, type RunStatus } from "../lib/harness/runs.ts";
 import {
   DriverError,
+  calibrate,
   observe,
   perform,
   performComputer,
@@ -56,16 +60,13 @@ import {
 } from "./driver.ts";
 
 /**
- * The environment to drive, and it is public by default.
+ * The environment to drive, public by default and always resolved to the page
+ * that publishes the contract.
  *
  * The gym is a deployed application in its own repository, so a run does not
  * need anything started locally — which is also the point: the harness reaches
  * it the way anything else would, over HTTP, with no privileged access and no
- * shared process. Point this at a local clickmail while developing one.
- */
-/**
- * The environment to drive, always resolved to the page that publishes the
- * contract.
+ * shared process. Point GYM_URL at a local clickmail while developing one.
  *
  * The mailbox lives at `/gym`. The site root is a landing page explaining what
  * the project is — a perfectly good page that publishes no contract, so a run
@@ -83,9 +84,7 @@ function resolveGymUrl(raw: string): string {
   return url.toString();
 }
 
-const GYM_URL = resolveGymUrl(
-  process.env.GYM_URL ?? "https://clickmail-sigma.vercel.app/gym",
-);
+const GYM_URL = resolveGymUrl(process.env.GYM_URL ?? GYM_HOME);
 const MODEL = process.env.MODEL ?? "openrouter/free";
 /**
  * An override, not the budget.
@@ -558,6 +557,17 @@ async function runTask(
   let detail: string | undefined;
   let turns = 0;
   let final: MailState | null = null;
+  /**
+   * The coordinate space this model turned out to be answering in.
+   *
+   * Established once, from the page, on the first click the numbers alone
+   * cannot settle — and then pinned. A convention is a property of the model,
+   * not of an individual number, and re-deciding it every turn is how one run
+   * ends up half in one space and half in the other.
+   */
+  let convention: Convention | null = null;
+  /** The turn the convention was settled on, so the record says how it was decided. */
+  let calibratedOn: number | null = null;
   // Hoisted: the verdict is computed after the try block, from the pair of
   // snapshots the environment reported either side of the run.
   let initial: MailState | null = null;
@@ -685,12 +695,73 @@ async function runTask(
 
       let error: string | undefined;
       let hit: string | undefined;
-      let point: ReturnType<typeof resolvePoint> | null = null;
+      let point: Resolved | null = null;
 
       if (mode === "computer") {
         const { x, y } = parsed.action.args as { x?: unknown; y?: unknown };
-        point =
-          typeof x === "number" && typeof y === "number" ? resolvePoint(x, y, VIEWPORT) : null;
+
+        /*
+         * Annotated, and the annotation is load-bearing. `tsc` rejects this
+         * block without it: TS7022, "referenced indirectly in its own
+         * initializer".
+         *
+         * The cycle is real rather than a compiler quirk, and it closes around
+         * the loop this sits in:
+         *
+         *   read      is computed from `convention`
+         *   convention is assigned `settled` further down
+         *   settled   is read off `read`
+         *
+         * `convention` carries a declared type, but its *narrowed* type at this
+         * line — still null, or settled on an earlier turn? — is flow-sensitive,
+         * and the flow into here includes the assignment below arriving back
+         * round the loop's back edge. So typing `read` needs `convention`, which
+         * needs `settled`, which needs `read`.
+         *
+         * Declaring the type here lets the compiler know what `read` is without
+         * evaluating what produces it, which cuts the cycle at one point instead
+         * of chasing the errors along it — `settled`, then `other`, then `raw`,
+         * each surfacing only once the one before it was annotated.
+         */
+        const read: Resolved | null =
+          typeof x === "number" && typeof y === "number"
+            ? resolvePoint(x, y, VIEWPORT, convention ?? undefined)
+            : null;
+        point = read;
+
+        /*
+         * Settle the coordinate space once, from the page, and then stop asking.
+         *
+         * This is the bug the whole project exists to be careful about, and it
+         * was sitting in the runner: the rule that recognises a 0-1000 grid only
+         * fires when a number overshoots the image. The image is 1180 wide and
+         * the grid stops at 1000, so on the x axis it can never overshoot, and
+         * on the y axis it only overshoots below 720 of 1000. A model answering
+         * in the grid was therefore read as pixels almost everywhere on screen,
+         * every click landing up and to the left of what it aimed at, and the
+         * run recorded as a model that cannot ground rather than a harness that
+         * cannot convert.
+         *
+         * Nothing about the numbers can separate the two. The page can: one
+         * reading is on a control and the other is on nothing. Two hit tests, no
+         * model call, and the answer holds for the rest of the run — a
+         * convention belongs to the model, not to the individual number.
+         */
+        if (read && read.ambiguous && read.alternate && !read.outOfBounds) {
+          const verdict = await calibrate(page, read, read.alternate);
+          if (verdict) {
+            const settled: Convention =
+              verdict === "primary" ? read.convention : read.alternate.convention;
+            convention = settled;
+            point = resolvePoint(read.raw.x, read.raw.y, VIEWPORT, settled);
+            calibratedOn = turn;
+            console.log(
+              `  coordinate space settled as ${settled} — both readings of ` +
+                `(${read.raw.x}, ${read.raw.y}) were hit-tested against the page`,
+            );
+          }
+        }
+
         const outcome = await performComputer(page, parsed.action, point);
         error = outcome.ok ? undefined : outcome.error;
         hit = outcome.hit;
@@ -743,6 +814,9 @@ async function runTask(
                 css: { x: Math.round(point.x), y: Math.round(point.y) },
                 label: describeResolution(point),
                 outOfBounds: point.outOfBounds,
+                // Set only on the turn the space was worked out, so a reader can
+                // see the decision rather than infer it from the numbers.
+                calibrated: calibratedOn === turn ? point.convention : undefined,
               }
             : undefined,
         },

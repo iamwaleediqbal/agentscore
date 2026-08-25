@@ -5,11 +5,15 @@ import path from "node:path";
 import { test } from "node:test";
 
 import {
+  SCREEN,
   computerPrompt,
   describeResolution,
   resolvePoint,
   type Viewport,
 } from "../lib/environment/computer.ts";
+
+const ROOT = path.resolve(import.meta.dirname, "..");
+const source = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
 
 // A 1180x720 environment photographed at half scale, which is what the gym does.
 const VIEW: Viewport = { width: 1180, height: 720, imageWidth: 590, imageHeight: 360 };
@@ -254,4 +258,96 @@ test("no prompt hands the model a URL it cannot use", () => {
       `a system prompt contains a URL: ${prompt.match(/https?:\/\/\S+/)?.[0]}`,
     );
   }
+});
+
+/*
+ * The case the per-point rules cannot decide, which is most of the screen.
+ *
+ * The 0-1000 grid sits inside the pixel range of the real screenshot: the image
+ * is 1180 wide and the grid stops at 1000, so on the x axis a grid coordinate
+ * can never overshoot. The rule that recognises a grid only fires on an
+ * overshoot. A model answering in the grid was therefore read as pixels almost
+ * everywhere, every click landing up and to the left of what it aimed at, and
+ * the run recorded as a model that cannot ground rather than a harness that
+ * cannot convert.
+ */
+test("a grid coordinate that does not overshoot is reported as undecided, not as pixels", () => {
+  const point = resolvePoint(500, 400, SCREEN);
+
+  assert.equal(point.ambiguous, true, "the reading was treated as settled when it is not");
+  assert.ok(point.alternate, "no competing reading was offered");
+  assert.equal(point.alternate.convention, "grid1000");
+
+  // 500/1000 of 1180 is 590, and 400/1000 of 720 is 288. Nothing about the
+  // numbers says which of (500, 400) and (590, 288) the model meant.
+  assert.equal(Math.round(point.alternate.x), 590);
+  assert.equal(Math.round(point.alternate.y), 288);
+});
+
+test("the x axis alone can never reveal a grid, which is why this needed fixing", () => {
+  // Every legal grid value is inside the image width, so no x can overshoot.
+  // Before, only a y beyond 720 could trigger detection — 28% of the grid.
+  for (const x of [1, 250, 500, 750, 1000]) {
+    assert.ok(x <= SCREEN.imageWidth, `x=${x} would have overshot, which is the easy case`);
+  }
+});
+
+test("an established convention overrides the rules and settles the reading", () => {
+  const guessed = resolvePoint(500, 400, SCREEN);
+  const pinned = resolvePoint(500, 400, SCREEN, "grid1000");
+
+  assert.equal(guessed.convention, "pixels", "the default reading is the documented contract");
+  assert.equal(pinned.convention, "grid1000");
+  assert.equal(pinned.ambiguous, false, "a settled reading cannot still be undecided");
+  assert.equal(pinned.alternate, null);
+  assert.equal(Math.round(pinned.x), 590);
+  assert.equal(Math.round(pinned.y), 288);
+});
+
+test("readings that are genuinely settled are not called undecided", () => {
+  // A clear overshoot: only the grid can explain it.
+  assert.equal(resolvePoint(950, 900, SCREEN).ambiguous, false);
+  // Sub-pixel numbers in [0, 1]: only a fraction can explain them. Offering
+  // pixel (0.25, 0.5) as a rival would make every fraction look undecided.
+  assert.equal(resolvePoint(0.25, 0.5, SCREEN).ambiguous, false);
+  // The very corner. A model aiming at (0, 0) means the corner, not the origin
+  // of a grid, and the grid reading of (0, 0) is the same point anyway.
+  assert.equal(resolvePoint(0, 0, SCREEN).ambiguous, false);
+});
+
+test("a competing reading that falls off the screen is not a competing reading", () => {
+  // 1180 as a grid value is beyond 1000, so there is no grid reading at all.
+  const edge = resolvePoint(SCREEN.imageWidth, SCREEN.imageHeight, SCREEN);
+  assert.equal(edge.ambiguous, false);
+  assert.equal(edge.alternate, null);
+});
+
+test("the runner settles the coordinate space from the page and then stops asking", () => {
+  // Two hit tests on a page that is already open, no model call. And pinned:
+  // a convention belongs to the model, not to the individual number, so
+  // re-deciding it every turn would leave one run half in each space.
+  const runner = source("runner/run.ts");
+
+  assert.match(runner, /await calibrate\(page, read, read\.alternate\)/,
+    "the runner no longer resolves an undecided reading against the page");
+  assert.match(runner, /resolvePoint\(x, y, VIEWPORT, convention \?\? undefined\)/,
+    "an established convention is not applied to later turns");
+  assert.match(runner, /convention = settled/,
+    "the settled convention is not kept");
+});
+
+test("an undecided calibration is not pinned", () => {
+  // Both readings on a control, or neither: the page cannot tell them apart, so
+  // there is nothing to learn. Pinning a coin flip is worse than not pinning.
+  const driver = source("runner/driver.ts");
+  assert.match(driver, /if \(hit\(here\) === hit\(there\)\) return null/,
+    "calibration commits to an answer the page did not give");
+  // The predicate, not merely the presence of the set. A `hit` that stops
+  // consulting GENERIC leaves the declaration sitting there unused, and an
+  // assertion that only looks for the name goes on passing.
+  assert.match(
+    driver,
+    /const hit = \([^)]*\) =>[^\n]*!GENERIC\.has\(/,
+    "any element counts as a hit, so every reading lands on something and nothing is decided",
+  );
 });

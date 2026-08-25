@@ -16,6 +16,21 @@ import type { MailState } from "./state.ts";
 
 export const AUTOMATION_VERSION = 1;
 
+/**
+ * Where the environment actually lives.
+ *
+ * The gym is a separate deployment of a separate repository, so its address is
+ * an absolute URL and never a route on this app. That is worth stating in one
+ * place because the mistake is so easy and so quiet: the nav linked the
+ * environment as `/gym`, which is a perfectly ordinary-looking href and a 404
+ * on this origin, and nothing about it reads as wrong until someone clicks it.
+ *
+ * The runner reads this as its default target and the shell links it. Anything
+ * that wants a different environment sets GYM_URL on the runner; nothing in the
+ * app should be constructing this address by hand.
+ */
+export const GYM_HOME = "https://clickmail-sigma.vercel.app/gym";
+
 export interface GymAutomation {
   readonly version: number;
   readonly environment: string;

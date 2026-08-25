@@ -44,6 +44,7 @@ export const ACTION_NAMES = [
   "reply",
   "forward",
   "send",
+  "save_draft",
   "discard",
   "finish",
 ] as const;
@@ -291,6 +292,48 @@ export function applyAction(state: MailState, action: Action): ApplyResult {
         labels: [],
       });
       next.composer = null;
+      return { state: next, ok: true };
+    }
+    /**
+     * File the open draft in Drafts, and close the composer.
+     *
+     * "Save draft" used to dispatch `compose`, which writes the text into the
+     * *open* composer and leaves it open. Nothing reached the drafts folder,
+     * the folder count did not move, and Discard threw the work away. A person
+     * clicking Save saw nothing happen at all; an agent asked to save a draft
+     * changed only a transient composer blob that the next action cleared.
+     *
+     * Drafts are ordinary mail in the drafts folder, which is also what makes
+     * them gradeable — a change to `composer` disappears the moment the
+     * composer closes, and a verdict cannot be computed from something that is
+     * no longer in the final snapshot.
+     */
+    case "save_draft": {
+      if (!next.composer) return fail(state, "there is no draft open");
+      const { to, subject, body } = next.composer;
+      if (!to.trim() && !subject.trim() && !body.trim()) {
+        return fail(state, "the draft is empty");
+      }
+
+      // Scanned rather than counted from the length, for the same reason `send`
+      // scans: save, delete something, save again, and two drafts share an id.
+      let n = next.emails.length + 1;
+      while (next.emails.some((e) => e.id === `draft-${n}`)) n++;
+
+      next.emails.push({
+        id: `draft-${n}`,
+        from: "you@clickmail.example",
+        to,
+        subject,
+        body,
+        receivedAt: "2026-08-24T00:00:00Z",
+        folder: "drafts",
+        read: true,
+        starred: false,
+        labels: [],
+      });
+      next.composer = null;
+      next.selectedId = null;
       return { state: next, ok: true };
     }
     case "discard": {

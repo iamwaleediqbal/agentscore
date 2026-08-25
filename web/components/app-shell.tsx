@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { GYM_HOME } from "@/lib/environment/contract";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -61,11 +62,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
+            {/*
+              An absolute URL, because the environment is not a page of this
+              app. It used to be written here as `/gym`, which looks like every
+              other href in this file and is a 404 on this origin — the whole
+              point of the split is that the gym is somewhere else, and a
+              relative link quietly says the opposite.
+            */}
             <Button asChild size="sm" variant="ghost" className="text-muted-foreground">
-              <Link href="/gym" target="_blank">
+              <a href={GYM_HOME} target="_blank" rel="noreferrer">
                 <Inbox className="size-3.5" />
                 <span className="hidden sm:inline">Environment</span>
-              </Link>
+              </a>
             </Button>
             <ThemeToggle />
           </div>

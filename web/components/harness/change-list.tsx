@@ -47,10 +47,10 @@ export function ChangeList({
             </code>
             <div className="mt-0.5 flex min-w-0 flex-wrap items-baseline gap-1.5 text-xs">
               <span className="break-all text-muted-foreground line-through">
-                {format(change.before)}
+                {formatValue(change.before)}
               </span>
               <span className="text-muted-foreground">&rarr;</span>
-              <span className="break-all font-medium">{format(change.after)}</span>
+              <span className="break-all font-medium">{formatValue(change.after)}</span>
             </div>
           </li>
         ))}
@@ -59,7 +59,7 @@ export function ChangeList({
   );
 }
 
-function format(value: unknown): string {
+export function formatValue(value: unknown): string {
   if (value === undefined || value === null || value === "") return "empty";
   const text = String(value);
   return text.length > 72 ? `${text.slice(0, 72)}…` : text;

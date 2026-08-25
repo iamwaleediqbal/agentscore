@@ -7,6 +7,7 @@ import { useParams } from "next/navigation";
 import { GradingDialog } from "@/components/harness/grading-dialog";
 import { ModeSwitch } from "@/components/harness/mode-switch";
 import { RunMonitor } from "@/components/harness/run-monitor";
+import { StateComparison } from "@/components/harness/state-comparison";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -83,13 +84,21 @@ export default function RunDetail() {
         </Card>
       )}
 
+      {/* The verdict before the trajectory, because they answer different
+          questions and this is the one a reader came for. What changed is the
+          measurement; how it got there is the story behind it. */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <h2 className="text-sm font-semibold">What changed</h2>
+          <GradingDialog verdict={run.verdict} task={task} size="sm" />
+        </div>
+        <StateComparison run={run} />
+      </div>
+
       {/* Full width. The trajectory is the thing being read; the verdict is a
           two-line answer that was taking half the pane and squeezing it. */}
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
-          <h2 className="text-sm font-semibold">Action timeline</h2>
-          <GradingDialog verdict={run.verdict} task={task} size="sm" />
-        </div>
+        <h2 className="px-1 text-sm font-semibold">Action timeline</h2>
         <RunMonitor entries={run.entries} />
       </div>
     </div>

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { AUTOMATION_VERSION } from "../lib/environment/contract.ts";
+import { AUTOMATION_VERSION, GYM_HOME } from "../lib/environment/contract.ts";
 import { TASKS, offlineSeed } from "../lib/harness/tasks.ts";
 
 /**
@@ -37,6 +37,20 @@ const code = (rel: string) =>
   read(rel)
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
+
+/**
+ * The runner's URL normalisation, replicated rather than imported.
+ *
+ * `run.ts` starts a browser on import, so a test cannot pull one function out
+ * of it. If the two ever disagree, this is the copy that is wrong — which is
+ * why the test above also asserts the shape of the expression in run.ts.
+ */
+const resolve = (raw: string) => {
+  const url = new URL(raw);
+  const at = url.pathname.replace(/\/+$/, "");
+  if (!at.endsWith("/gym")) url.pathname = `${at}/gym`;
+  return url.toString();
+};
 
 
 
@@ -121,15 +135,6 @@ test("a run always lands on the page that publishes the contract", () => {
     "the normalised value has to be the one actually used",
   );
 
-  // Replicated here rather than imported, because run.ts starts a browser on
-  // import. If the two ever disagree, this is the copy that is wrong.
-  const resolve = (raw: string) => {
-    const url = new URL(raw);
-    const path = url.pathname.replace(/\/+$/, "");
-    if (!path.endsWith("/gym")) url.pathname = `${path}/gym`;
-    return url.toString();
-  };
-
   for (const [given, expected] of [
     ["https://clickmail-sigma.vercel.app", "https://clickmail-sigma.vercel.app/gym"],
     ["https://clickmail-sigma.vercel.app/", "https://clickmail-sigma.vercel.app/gym"],
@@ -142,10 +147,40 @@ test("a run always lands on the page that publishes the contract", () => {
 
 test("the default target is the deployed environment", () => {
   // Recording needs nothing running locally: the environment is a public site,
-  // and the harness reaches it the way anything else would.
+  // and the harness reaches it the way anything else would. Asserted on the
+  // shared constant rather than on the runner's source, because the address
+  // moved into the contract the day the interface needed to link it too.
+  assert.equal(resolve(GYM_HOME), GYM_HOME, "the default target is not already the gym page");
+  assert.match(GYM_HOME, /^https:\/\/[^/]+\/gym$/, "the default target is not a deployed gym page");
+});
+
+test("the environment is somewhere else, and every link to it says so", () => {
+  // The whole architecture is that the gym is a separate deployment. A link
+  // written as a path asserts the opposite, and does it in a form that looks
+  // exactly like the six correct internal links beside it — which is how it got
+  // there. It resolves against this origin and 404s.
+  assert.match(GYM_HOME, /^https:\/\//, "the gym address is not absolute");
+  assert.match(GYM_HOME, /\/gym$/, "the gym address does not point at the page that publishes the contract");
+
+  const shell = code("components/app-shell.tsx");
+  assert.ok(
+    !/href=["'](\/gym|\/environment)/.test(shell),
+    "the shell links the environment as one of its own routes",
+  );
+  assert.match(shell, /GYM_HOME/, "the shell no longer reads the environment address from the contract");
+});
+
+test("the runner and the interface agree on where the environment is", () => {
+  // One constant, two readers. Two literals would drift the first time the gym
+  // is redeployed under a different name, and the drift would be silent on
+  // whichever side nobody clicked.
   assert.match(
     code("runner/run.ts"),
-    /https:\/\/clickmail-sigma\.vercel\.app\/gym/,
-    "the runner no longer defaults to the deployed gym",
+    /GYM_URL\s*\?\?\s*GYM_HOME|GYM_HOME/,
+    "the runner no longer defaults to the shared gym address",
+  );
+  assert.ok(
+    !/"https:\/\/clickmail[^"]*"/.test(code("runner/run.ts")),
+    "the runner has a hardcoded gym URL beside the shared one",
   );
 });

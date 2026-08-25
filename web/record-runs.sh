@@ -2,6 +2,11 @@
 #
 # Record real runs, one task at a time, and write them into public/runs/.
 #
+# This belongs to the harness, and only to the harness. The gym is a separate
+# deployed application in a separate repository; it holds state and publishes a
+# contract, and it has no idea that runs, tasks, graders or models exist. This
+# script reaches it over HTTP the way any other visitor would.
+#
 # Nothing runs without you saying so. Each task shows you its instruction, waits
 # for you to approve it, records it, then shows you the outcome and the quota it
 # spent before offering the next one. You can stop after any task and keep
@@ -12,10 +17,12 @@
 # infrastructure failure and stays unscored, because a transport failure is an
 # absent measurement rather than a model that failed.
 #
-# It cannot spend credits. Every request carries a zero price ceiling that the
-# provider enforces by refusing rather than billing, the model list rejects any
-# model with any non-zero price in any field, a reply reporting a cost aborts the
-# run, and the credit balance is compared before and after.
+# By default it cannot spend credits, and that is a capability rather than a
+# rule: every request carries a zero price ceiling the provider enforces by
+# refusing rather than billing, the model list rejects any model with a non-zero
+# price in any field, a reply reporting a cost aborts the run, and the credit
+# balance is compared before and after. Spending requires naming a paid model
+# and a budget in the same breath — see below.
 #
 # Usage:
 #   ./record-runs.sh                  offer every task in turn
@@ -30,11 +37,17 @@
 # Spending is opt-in and bounded. A paid model requires BUDGET as well, so
 # choosing to spend and choosing how much are one decision:
 #
-#   BUDGET=0.50 MODEL=google/gemini-3.7-flash ./record-runs.sh
+#   BUDGET=0.30 MODEL=google/gemini-3.7-flash MODE=both ./record-runs.sh
 #
 # The batch stops the moment the running total reaches the budget, mid-task if
 # necessary. Without MODEL set to a paid id, nothing can cost anything: every
 # request carries a zero price ceiling the provider enforces by refusing.
+#
+# BUDGET is per invocation, not per lifetime. Each run of this script starts a
+# fresh accounting session anchored to the account's current spend, so calling
+# it three times with BUDGET=0.30 authorises up to 0.90 in total. There is no
+# stored lifetime ceiling anywhere and this script cannot invent one — the
+# number to watch is the OpenRouter balance, which it prints before and after.
 #
 # Computer use needs a model that accepts images. The free router picks one; a
 # text-only MODEL will simply not see the screenshots.
@@ -50,7 +63,7 @@
 set -eu
 
 case "${1:-}" in
-  -h|--help) sed -n '3,33p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,53p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   --models)
     # Which models a run would try, without starting one or spending anything.
     cd "$(dirname "$0")"
@@ -65,11 +78,11 @@ cd "$(dirname "$0")"
 MODEL="${MODEL:-openrouter/free}"
 MODE="${MODE:-computer}"
 PAID_RUN=""
-TASK_LIST="${TMPDIR:-/tmp}/clickmail-tasks.$$.tsv"
+TASK_LIST="${TMPDIR:-/tmp}/agentscore-tasks.$$.tsv"
 # One file for the whole session. The runner is spawned once per task, so a
 # spend total held in memory would reset each time and a batch budget would
 # quietly become a per-task budget.
-BUDGET_STATE="${TMPDIR:-/tmp}/clickmail-budget.$$.json"
+BUDGET_STATE="${TMPDIR:-/tmp}/agentscore-budget.$$.json"
 
 case "$MODE" in
   computer|tool|both) : ;;
@@ -106,7 +119,7 @@ if [ "$NODE_MAJOR" -lt 22 ]; then
 fi
 ok "node $(node -v)"
 
-[ -f .env.local ] || die ".env.local is missing. Copy .env.example and put your OpenRouter key in it."
+[ -f .env.local ] || die ".env.local is missing. Run: cp .env.example .env.local, then put your OpenRouter key in it."
 
 # Read the key without sourcing the file: sourcing a dotenv runs whatever is in
 # it, and stripping quotes with sed costs more than handing it to node.
@@ -132,12 +145,14 @@ case "$MODEL" in
     ;;
   *)
     if [ "$(node -e "process.stdout.write(String(Number(process.env.BUDGET) > 0))")" != "true" ]; then
-      die "$MODEL is a paid model. Set BUDGET to the most you will spend: BUDGET=0.50 MODEL=$MODEL $0"
+      die "$MODEL is a paid model. Set BUDGET to the most you will spend: BUDGET=0.30 MODEL=$MODEL $0"
     fi
     PAID_RUN="yes"
-    warn "PAID MODEL: $MODEL, capped at ${BUDGET} credits for the whole session"
+    warn "PAID MODEL: $MODEL, capped at ${BUDGET} credits for this invocation"
     warn "the total accumulates across tasks and is anchored to OpenRouter's own"
     warn "account figure, so it holds even if a reply reports no cost"
+    warn "it does NOT accumulate across invocations — running this again"
+    warn "authorises another ${BUDGET}"
     ;;
 esac
 
@@ -190,10 +205,24 @@ STARTING_CREDITS="$(printf '%s' "$QUOTA_JSON" | node -e '
 
 say "Installing"
 
-[ -d node_modules ] || npm install --no-audit --no-fund
+# Checked, not assumed. `[ -d node_modules ] || npm install` printed a green
+# tick whether or not the install worked — npm creates the directory before it
+# starts fetching, so a failed install leaves exactly the evidence this line was
+# reading as success. A tick that cannot fail is not a check.
+if [ ! -d node_modules ]; then
+  npm install --no-audit --no-fund || die "npm install failed — see the output above"
+fi
+# A file, not the directory. npm builds the whole directory tree before it
+# fetches a single tarball, so an install that dies on the network leaves
+# `node_modules/next/` sitting there, empty, looking exactly like a good one.
+[ -f node_modules/next/package.json ] \
+  || die "node_modules is incomplete — run 'npm install' and check it finishes"
 ok "app dependencies"
 
-npm --prefix runner install --silent --no-audit --no-fund
+npm --prefix runner install --silent --no-audit --no-fund \
+  || die "the runner's dependencies would not install — see the output above"
+[ -x ./runner/node_modules/.bin/playwright ] \
+  || die "playwright is missing from runner/node_modules — run 'npm --prefix runner install'"
 ok "runner dependencies"
 
 # The task table, read straight out of the task definitions so this menu and the
@@ -217,11 +246,14 @@ if [ -n "$ONLY" ]; then ok "task \"$ONLY\" exists"; fi
 
 # Playwright ships its browser separately. Installing twice is cheap; not
 # installing at all fails deep inside the first run with an unhelpful message.
-if ! ./runner/node_modules/.bin/playwright install chromium >/dev/null 2>&1; then
-  warn "could not install Chromium automatically"
+# The tick belongs in the branch that earned it. This printed the warning and
+# then "✓ Chromium" underneath it, which reads as recovered rather than failed.
+if ./runner/node_modules/.bin/playwright install chromium >/dev/null 2>&1; then
+  ok "Chromium"
+else
+  warn "could not install Chromium automatically — the first run will fail on it"
   warn "run: ./runner/node_modules/.bin/playwright install chromium"
 fi
-ok "Chromium"
 
 # ------------------------------------------------------------------- gym
 
@@ -231,7 +263,7 @@ ok "Chromium"
 # process, which is the only way "it could drive a real application" means
 # anything.
 #
-# Point GYM_URL at a local clickmail while you are working on one.
+# Point GYM_URL at a local clickmail checkout while you are working on one.
 GYM_URL="${GYM_URL:-https://clickmail-sigma.vercel.app/gym}"
 
 # The mailbox is at /gym; the site root is a landing page that publishes no

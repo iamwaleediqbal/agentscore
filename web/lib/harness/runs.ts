@@ -57,7 +57,17 @@ export interface RunRecord {
   seeded?: boolean;
 }
 
-const KEY = "clickmail.runs.v1";
+/*
+ * The harness's own storage, named after the harness.
+ *
+ * It read `clickmail.runs.v1` — inherited from the copy this repository was
+ * made from, and wrong twice over once the two split: these are run records,
+ * which the environment knows nothing about, and they live on this origin,
+ * which is not the environment's. Renaming orphans any locally recorded run
+ * from before the split, which is the correct trade: those runs were recorded
+ * against a harness that no longer exists.
+ */
+const KEY = "agentscore.runs.v1";
 const LIMIT = 60;
 
 export function loadRuns(): RunRecord[] {

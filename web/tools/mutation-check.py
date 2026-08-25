@@ -86,6 +86,35 @@ for _sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
     # sys.exit from a handler raises SystemExit, so atexit still runs.
     signal.signal(_sig, lambda *_: sys.exit(130))
 
+
+# ---------------------------------------------------------------- baseline
+#
+# A mutation is "caught" when the suite goes red. That inference only holds if
+# the suite was green to begin with — and for a long time it did not hold here:
+# the tests these tools ran included a file that had been deleted, node exited
+# non-zero because the path did not resolve, and every case reported CAUGHT
+# without a mutation ever changing an outcome. Two of the guards behind that
+# were, it turned out, guarding nothing.
+#
+# So the test list is run once, unmutated, before anything is edited. A list
+# that is already red proves nothing about any mutation, and says so.
+
+_BASELINE = {}
+
+
+def baseline_ok(tests):
+    key = tuple(tests)
+    if key not in _BASELINE:
+        r = subprocess.run(["node", "--test", "--experimental-strip-types", *tests],
+                           capture_output=True, text=True)
+        _BASELINE[key] = r.returncode == 0
+        if not _BASELINE[key]:
+            print(f"  BASELINE RED: {' '.join(tests)}")
+    return _BASELINE[key]
+
+
+FREE = ["tests/free-only.test.ts"]
+
 results = []
 for name, rel, old, new in CASES:
     p = pathlib.Path(rel)
@@ -96,10 +125,15 @@ for name, rel, old, new in CASES:
     if old not in original:
         results.append((name, "SKIP - anchor not found"))
         continue
+    if not baseline_ok(FREE):
+        results.append((name, "*** BASELINE RED - proves nothing ***"))
+        continue
     p.write_text(original.replace(old, new, 1), encoding="utf-8")
-    r = subprocess.run(["node","--test","--experimental-strip-types","tests/free-only.test.ts"],
-                       capture_output=True, text=True)
-    p.write_text(original, encoding="utf-8")
+    try:
+        r = subprocess.run(["node", "--test", "--experimental-strip-types", *FREE],
+                           capture_output=True, text=True)
+    finally:
+        p.write_text(original, encoding="utf-8")
     _ORIGINALS.pop(str(p), None)
     caught = r.returncode != 0
     results.append((name, "CAUGHT" if caught else "*** NOT CAUGHT ***"))
@@ -108,6 +142,9 @@ print(f"\n{'mutation':<52} {'result'}")
 print("-" * 78)
 for name, verdict in results:
     print(f"{name:<52} {verdict}")
-missed = [n for n, v in results if "NOT CAUGHT" in v or "SKIP" in v]
+missed = [n for n, v in results if v != "CAUGHT"]
 print()
 print("all mutations caught" if not missed else f"GAPS: {len(missed)}")
+# A tool that reports a gap and exits 0 is a tool nothing is checking. push.sh
+# and CI both read the exit code, and read nothing else.
+sys.exit(1 if missed else 0)

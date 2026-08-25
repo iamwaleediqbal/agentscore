@@ -142,6 +142,28 @@ task was about content. If format is what you care about, that is a separate
 
 ## Setup
 
+Two halves, installed independently. Neither needs the other, and neither needs
+a key until you actually record something.
+
+### The web half — `web/`
+
+Node 22 or newer.
+
+```bash
+cd web
+npm install
+npm run dev          # http://localhost:3000
+npm test             # 260 tests, and they run with no install at all
+```
+
+The suite has no dependencies — Node's own test runner and type stripping — so
+`npm test` is green before `npm install` finishes. Only `npm run typecheck` and
+`npm run lint` need it. Recording real runs is [`web/README.md`](web/README.md),
+which is also where the grader, the two action spaces, the turn budgets and the
+cost guards are documented in full.
+
+### The Python half — this directory
+
 Python 3.10 or newer, and a free OpenRouter key from
 [openrouter.ai/keys](https://openrouter.ai/keys).
 

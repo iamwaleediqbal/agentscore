@@ -14,12 +14,15 @@ import { summarise, totals } from "@/lib/harness/analytics";
 import { formatCost } from "@/lib/harness/runs";
 
 /**
- * What has actually been measured, above anything anyone can do.
+ * What has actually been measured, and nothing else.
  *
- * The page used to lead with a form that no visitor can submit — starting a run
- * spends a model call, so it is owner-only. Leading with a locked control tells
- * a reader nothing about the project; leading with the results tells them
- * everything it is for.
+ * The page used to lead with a form to start a run. Nobody can submit it now
+ * and nobody should: this deployment has no key and no route that could reach a
+ * provider, so a launcher here would be a control that always fails. Runs are
+ * recorded on a laptop and published by committing the file they land in.
+ *
+ * Leading with a dead control tells a reader nothing about the project. Leading
+ * with the results tells them everything it is for.
  */
 export function Dashboard() {
   const { runs, ready, measured } = useRuns();

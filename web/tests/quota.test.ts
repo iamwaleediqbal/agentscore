@@ -131,3 +131,34 @@ test("screenshots from a run that recorded nothing are not left behind", () => {
     "the path that records nothing must still clean up after itself",
   );
 });
+
+test("no preflight step reports success it did not verify", () => {
+  // Two green ticks were printed unconditionally. `[ -d node_modules ] || npm
+  // install` printed "app dependencies" whether or not the install worked —
+  // npm creates the directory before it starts fetching, so a failed install
+  // leaves exactly the evidence that line read as success. And the Chromium
+  // step printed its warning and then a tick underneath it, which reads as
+  // recovered. A run that starts on a broken install fails much later and
+  // blames something else.
+  const script = read("record-runs.sh");
+
+  assert.match(
+    script,
+    /node_modules\/next\/package\.json \][\s\S]{0,8}\|\| die/,
+    "the app install is reported without checking a file was actually written",
+  );
+  assert.match(
+    script,
+    /npm install --no-audit --no-fund \|\| die/,
+    "a failed app install does not stop the script",
+  );
+  // Anchored at `if ` with nothing between it and the command, so a negated
+  // condition — `if ! playwright install …` with the tick still underneath —
+  // does not match. The first version of this assertion did match it, which is
+  // the same defect it was written to catch, one level up.
+  assert.match(
+    script,
+    /\n\s*if \.\/runner\/node_modules\/\.bin\/playwright install chromium[^\n]*then\n\s*ok "Chromium"/,
+    "the Chromium tick is printed outside the branch that earned it",
+  );
+});
