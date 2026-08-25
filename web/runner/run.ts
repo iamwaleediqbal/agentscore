@@ -21,15 +21,17 @@ import path from "node:path";
 import { chromium } from "playwright";
 
 import { isClassifierVerdict } from "../lib/agent/classify.ts";
-import { parseTurn } from "../lib/agent/parse.ts";
+import { type ToolCall, fromToolCall, parseTurn } from "../lib/agent/parse.ts";
 import {
   type Convention,
   type Resolved,
   type Viewport,
   computerPrompt,
+  computerToolSchemas,
   describeResolution,
   resolvePoint,
 } from "../lib/environment/computer.ts";
+import { type ToolSchema, toolSchemas } from "../lib/environment/catalog.ts";
 import { GYM_HOME } from "../lib/environment/contract.ts";
 import { MAILBOX } from "../lib/environment/describe.ts";
 import { grade } from "../lib/harness/grade.ts";
@@ -41,6 +43,7 @@ import {
   isPaidModel,
   reasoningOption,
   rejectsReasoning,
+  rejectsToolChoice,
 } from "../lib/models.ts";
 import { SYSTEM_PROMPT } from "../lib/environment/serialize.ts";
 import type { MailState } from "../lib/environment/state.ts";
@@ -208,6 +211,15 @@ interface Message {
 
 interface Reply {
   content: string;
+  /**
+   * The tool call the model made, when it made one.
+   *
+   * This is the intended path for both action spaces. `content` is kept
+   * alongside it because a model that was handed tools and replied with prose
+   * anyway is still a measurement — but which of the two a turn arrived on is
+   * recorded rather than smoothed over.
+   */
+  toolCall?: ToolCall;
   /** The provider's chain of thought, when one was requested and returned. */
   reasoning?: string;
   usage: Usage;
@@ -346,7 +358,12 @@ export class QuotaError extends Error {}
  */
 export class BilledError extends Error {}
 
-async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Reply> {
+async function ask(
+  messages: Message[],
+  mode: Mode,
+  chain: string[],
+  tools: ToolSchema[],
+): Promise<Reply> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY is not set");
   const startedAt = Date.now();
@@ -385,6 +402,10 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
     // request is then retried without it rather than the model being written
     // off, which is what a plain 400 would have done.
     let dropReasoning = false;
+    // Same idea for `tool_choice`, which a few endpoints refuse outright and a
+    // few refuse at the routing layer. Per model, because it is a fact about an
+    // endpoint rather than about the request.
+    let dropToolChoice = false;
 
     for (let attempt = 0; attempt < 4; attempt++) {
       // Bound 3: needs no pricing information at all, so it holds even when
@@ -407,6 +428,41 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
             messages,
             temperature: 0,
             max_tokens: maxTokens,
+            /*
+             * The action space, as tools.
+             *
+             * Both modes used to describe their actions in prose and ask for a
+             * JSON object back in the message text, which this file then dug
+             * out with a brace matcher. Calling that "tool calling" was the
+             * plainest thing wrong with this harness, and it manufactured a
+             * failure that need not exist: a reply truncated at the output cap
+             * arrived as `{"thought": "…", "acti` and was recorded as a model
+             * that cannot produce JSON.
+             *
+             * `required` rather than `auto`: every turn of an agent run is an
+             * action. A turn spent answering in prose is a turn bought and
+             * thrown away, and on a paid run that is money.
+             */
+            tools,
+            /*
+             * `auto`, not `required`, and that is from OpenRouter's own schema
+             * rather than a preference.
+             *
+             * Its accepted values are `none`, `auto`, or an object naming one
+             * specific function. `required` is an OpenAI value that OpenRouter
+             * does not document, and sending an undocumented enum through a
+             * router that fans out to dozens of providers is how a run fails on
+             * some endpoints and not others for a reason nobody can see. Naming
+             * one function is no use here either — choosing the action is the
+             * task.
+             *
+             * So a model can still answer in prose. That is handled where it
+             * belongs: the reply is read anyway, and the turn is recorded as
+             * `transport: "prose"`. A model that had tools and did not call one
+             * is a finding about that model, and forcing the call with a
+             * parameter half the fleet rejects would have hidden it.
+             */
+            ...(dropToolChoice ? {} : { tool_choice: "auto" }),
             // A hard ceiling either way: refuse anything that costs money, or
             // when spending is intended, refuse anything absurdly priced.
             provider: PAID ? AFFORDABLE : FREE_ONLY,
@@ -453,6 +509,22 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
           continue;
         }
 
+        // Same shape, different field. Some endpoints reject `tool_choice`, and
+        // some fail at the routing layer with "no endpoints found for
+        // tool_choice" — a 404, which the 4xx rule below would read as a
+        // malformed request and use to abandon the model. It is neither: the
+        // endpoint can make the call, it just will not accept being told it
+        // must. The tools stay; only the insistence is dropped.
+        if (
+          (response.status === 400 || response.status === 404) &&
+          rejectsToolChoice(detail) &&
+          !dropToolChoice
+        ) {
+          dropToolChoice = true;
+          console.log(`  ${model} will not take tool_choice — retrying without it`);
+          continue;
+        }
+
         // Otherwise a malformed request will be malformed every time. Retrying
         // it and then sending the same thing to the next model is noise.
         if (response.status >= 400 && response.status < 500) break;
@@ -472,6 +544,7 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
 
       const content = payload.choices?.[0]?.message?.content ?? "";
       const reasoning = payload.choices?.[0]?.message?.reasoning;
+      const toolCall = payload.choices?.[0]?.message?.tool_calls?.[0];
 
       // A 200 with nothing in it is a failed call wearing a success code.
       //
@@ -479,7 +552,11 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
       // not three. An endpoint that answers with nothing twice is broken rather
       // than busy, and the remaining attempts are better spent on the next
       // model than on proving that again.
-      if (!content.trim()) {
+      //
+      // "Nothing" now means no tool call *and* no text. A tool call with empty
+      // content is the normal, correct shape of a reply here, and treating it
+      // as empty would have rejected every well-behaved turn.
+      if (!toolCall && !content.trim()) {
         lastReason = `${model} returned an empty reply`;
         if (attempt >= 1) break;
         continue;
@@ -487,7 +564,7 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
 
       // Same answer every time from this endpoint, so move to the next model
       // rather than burning two more attempts on it.
-      if (isClassifierVerdict(content)) {
+      if (!toolCall && isClassifierVerdict(content)) {
         lastReason = `${model} is a safety classifier, not an assistant`;
         break;
       }
@@ -514,6 +591,7 @@ async function ask(messages: Message[], mode: Mode, chain: string[]): Promise<Re
 
       return {
         content,
+        toolCall,
         reasoning: typeof reasoning === "string" && reasoning ? reasoning : undefined,
         usage: readUsage(payload.usage),
         // What the provider says this call cost. It was hardcoded to zero from
@@ -607,6 +685,17 @@ async function runTask(
             { role: "user", content: `Task: ${task.prompt}\n\nScreen:\n${await observe(page)}` },
           ];
 
+    /*
+     * The action space, as tools, decided once for the run.
+     *
+     * Two spaces, two vocabularies, one transport. That is the comparison this
+     * project exists to make: the same task, the same grader, the same way of
+     * replying, differing only in what the model is shown and what it can name.
+     * When one space was a tool call and the other was prose in a message, part
+     * of any gap between them was the transport rather than the grounding.
+     */
+    const tools = mode === "computer" ? computerToolSchemas() : toolSchemas();
+
     let silent = 0;
     for (let turn = 1; turn <= maxTurns; turn++) {
       turns = turn;
@@ -623,7 +712,7 @@ async function runTask(
                     text: [
                       `Task: ${task.prompt}`,
                       history.length ? `\nWhat you have done so far:\n${history.join("\n")}` : "",
-                      "\nThis is the screen now. Reply with one JSON action.",
+                      "\nThis is the screen now. Make one tool call.",
                     ]
                       .filter(Boolean)
                       .join("\n"),
@@ -634,8 +723,21 @@ async function runTask(
             ]
           : messages;
 
-      const reply = await ask(outgoing, mode, chain);
-      const parsed = parseTurn(reply.content);
+      const reply = await ask(outgoing, mode, chain, tools);
+
+      /*
+       * The tool call is the intended path, and the prose one is the fallback.
+       *
+       * A model handed tools that answers in prose anyway is still a
+       * measurement of that model, so its reply is read rather than discarded.
+       * But which way a turn arrived is recorded on the entry: "it did the task"
+       * and "it did the task without ever making a tool call" are different
+       * findings, and collapsing them would hide the second one entirely.
+       */
+      const parsed = reply.toolCall
+        ? { ...fromToolCall(reply.toolCall), thought: "" }
+        : parseTurn(reply.content);
+      const transport: "tool_call" | "prose" = reply.toolCall ? "tool_call" : "prose";
 
       entries.push({
         id: `${id}-t${turn}-think`,
@@ -657,6 +759,7 @@ async function runTask(
         at: Date.now(),
         text: reply.content,
         parseError: parsed.action ? undefined : parsed.error,
+        transport,
       });
 
       if (!parsed.action) {
@@ -708,9 +811,9 @@ async function runTask(
          * The cycle is real rather than a compiler quirk, and it closes around
          * the loop this sits in:
          *
-         *   read      is computed from `convention`
+         *   read       is computed from `convention`
          *   convention is assigned `settled` further down
-         *   settled   is read off `read`
+         *   settled    is read off `read`
          *
          * `convention` carries a declared type, but its *narrowed* type at this
          * line — still null, or settled on an earlier turn? — is flow-sensitive,
@@ -909,7 +1012,7 @@ if (process.argv.includes("--models")) {
     const notes = [
       entry?.router ? "router" : null,
       entry && !entry.router && entry.vision ? "accepts images" : null,
-      entry && !entry.router && !entry.structured ? "no structured signal" : null,
+      entry && !entry.router && !entry.tools ? "no tool calling" : null,
     ].filter(Boolean);
     console.log(`  ${index + 1}. ${id}${notes.length ? `   (${notes.join(", ")})` : ""}`);
   });

@@ -9,6 +9,44 @@
 
 import type { Action } from "../environment/actions.ts";
 
+/** One tool call, in the shape OpenRouter returns it. */
+export interface ToolCall {
+  id?: string;
+  function?: { name?: unknown; arguments?: unknown };
+}
+
+/**
+ * Read a turn out of a tool call, which is what a model is meant to reply with.
+ *
+ * The prose path below still exists and still runs, because a model that was
+ * asked for a tool call and produced text is a measurement rather than an
+ * error — but it is recorded as the fallback it is, not silently accepted as
+ * equivalent. Which transport a turn arrived on is on the run record.
+ */
+export function fromToolCall(call: ToolCall): {
+  action: Action | null;
+  error?: string;
+} {
+  const name = call.function?.name;
+  if (typeof name !== "string" || !name) return { action: null, error: "tool call has no name" };
+
+  const raw = call.function?.arguments;
+  // Providers disagree: most send a JSON *string*, some send the object. Both
+  // are accepted, because rejecting one of them would report a working model as
+  // broken for a reason that has nothing to do with the task.
+  if (raw === undefined || raw === null || raw === "") return { action: { name, args: {} } };
+  if (typeof raw === "object") return { action: { name, args: raw as Record<string, unknown> } };
+  if (typeof raw !== "string") return { action: null, error: "tool arguments are not readable" };
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return { action: { name, args: {} } };
+    return { action: { name, args: parsed as Record<string, unknown> } };
+  } catch (error) {
+    return { action: null, error: `tool arguments are not valid JSON: ${String(error)}` };
+  }
+}
+
 export function parseTurn(raw: string): {
   thought: string;
   action: Action | null;

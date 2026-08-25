@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { ACTION_NAMES, applyAction } from "../lib/environment/actions.ts";
 import { CATALOG, actionReference, type ActionName } from "../lib/environment/catalog.ts";
 import { SYSTEM_PROMPT } from "../lib/environment/serialize.ts";
+import { serialize } from "../lib/environment/serialize.ts";
 import { seedState } from "../lib/environment/state.ts";
 
 /**
@@ -170,4 +171,25 @@ test("the reducer's exported action list is the catalogue's", () => {
 
   assert.deepEqual(missing, [], "the prompt offers actions the parser will not accept");
   assert.deepEqual(extra, [], "the parser accepts actions the model is never told about");
+});
+
+test("both action spaces are shown the same world", () => {
+  // A computer-use agent reads whatever the interface renders. If the
+  // serialised observation omits something the screen shows, the two spaces are
+  // looking at different worlds and the gap between their verdicts stops being
+  // about grounding — which is the only thing running both is for.
+  //
+  // The date was exactly that: on the row in the interface, absent from the
+  // serialisation, and nothing compared the two.
+  const state = seedState();
+  const text = serialize(state);
+  const inbox = state.emails.filter((e) => e.folder === "inbox");
+
+  assert.ok(inbox.length > 0, "the seed has no inbox mail, so this proves nothing");
+  for (const email of inbox.slice(0, 3)) {
+    assert.ok(
+      text.includes(email.receivedAt),
+      `the serialised mailbox does not tell the model when ${email.id} arrived`,
+    );
+  }
 });

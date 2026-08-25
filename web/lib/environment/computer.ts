@@ -13,6 +13,8 @@
  * the only way to say which of the two a failure came from.
  */
 
+import type { Param, ToolSchema } from "./catalog.ts";
+
 export type ComputerActionName =
   | "click"
   | "double_click"
@@ -198,34 +200,105 @@ export function describeResolution(resolved: Resolved): string {
 
 export const COMPUTER_ACTIONS: ReadonlyArray<{
   name: ComputerActionName;
-  args: string;
+  params: readonly Param[];
   effect: string;
 }> = [
-  { name: "click", args: "x, y", effect: "Presses the left mouse button at that point." },
-  { name: "double_click", args: "x, y", effect: "Two clicks in quick succession." },
-  { name: "type", args: "text", effect: "Types into whatever currently has focus." },
-  { name: "key", args: "name", effect: "One key: Enter, Tab, Escape, Backspace." },
-  { name: "scroll", args: "x, y, dy", effect: "Scrolls the pane under that point." },
-  { name: "wait", args: "—", effect: "Does nothing for a moment, then re-photographs." },
-  { name: "finish", args: "—", effect: "Ends the run. The agent is claiming it is done." },
+  {
+    name: "click",
+    params: [
+      { name: "x", type: "number", description: "Pixels from the left edge of the screenshot." },
+      { name: "y", type: "number", description: "Pixels from the top edge of the screenshot." },
+    ],
+    effect: "Presses the left mouse button at that point.",
+  },
+  {
+    name: "double_click",
+    params: [
+      { name: "x", type: "number", description: "Pixels from the left edge of the screenshot." },
+      { name: "y", type: "number", description: "Pixels from the top edge of the screenshot." },
+    ],
+    effect: "Two clicks in quick succession.",
+  },
+  {
+    name: "type",
+    params: [{ name: "text", type: "string", description: "Text to type into whatever has focus." }],
+    effect: "Types into whatever currently has focus. Click a field first.",
+  },
+  {
+    name: "key",
+    params: [
+      {
+        name: "name",
+        type: "string",
+        description: "Which key to press.",
+        enum: ["Enter", "Tab", "Escape", "Backspace"],
+      },
+    ],
+    effect: "Presses one key.",
+  },
+  {
+    name: "scroll",
+    params: [
+      { name: "x", type: "number", description: "Pixels from the left edge of the screenshot." },
+      { name: "y", type: "number", description: "Pixels from the top edge of the screenshot." },
+      { name: "dy", type: "number", description: "How far to scroll. Positive is downwards." },
+    ],
+    effect: "Scrolls the pane under that point.",
+  },
+  { name: "wait", params: [], effect: "Does nothing for a moment, then re-photographs." },
+  { name: "finish", params: [], effect: "Ends the run. The agent is claiming it is done." },
 ];
+
+/**
+ * The computer-use action space as JSON Schema.
+ *
+ * Anthropic, OpenAI and Google each ship a native computer-use tool with its
+ * own action vocabulary. None of them is reachable through OpenRouter, whose
+ * surface is the standard chat-completions API with ordinary function calling —
+ * so a harness that goes through OpenRouter has to declare its own vocabulary.
+ * Declaring it as *tools* rather than as prose in the system prompt is the part
+ * that was wrong: the model is trained to emit a structured call, the provider
+ * validates the arguments against the schema, and the whole class of "the reply
+ * was cut off mid-object" stops existing.
+ *
+ * That this is a declared vocabulary rather than a provider-native computer-use
+ * tool is a real limitation, and it is written down in the README rather than
+ * implied away.
+ */
+export function computerToolSchemas(): ToolSchema[] {
+  return COMPUTER_ACTIONS.map((action) => {
+    const properties: ToolSchema["function"]["parameters"]["properties"] = {};
+    const required: string[] = [];
+
+    for (const param of action.params) {
+      properties[param.name] = {
+        type: param.type,
+        description: param.description,
+        ...(param.enum ? { enum: [...param.enum] } : {}),
+      };
+      if (!param.optional) required.push(param.name);
+    }
+
+    return {
+      type: "function",
+      function: {
+        name: action.name,
+        description: action.effect,
+        parameters: { type: "object", properties, required, additionalProperties: false },
+      },
+    };
+  });
+}
 
 export function computerPrompt(viewport: Viewport): string {
   return `You are operating a computer. Each turn you are shown a screenshot of the screen and nothing else.
 
-The screenshot is ${viewport.imageWidth} by ${viewport.imageHeight} pixels. Give coordinates in that space, measured from the top-left corner: x to the right, y downwards.
+The screenshot is ${viewport.imageWidth} by ${viewport.imageHeight} pixels. Coordinates are measured from the top-left corner: x to the right, y downwards.
 
-Reply with exactly one JSON object and no other text:
-
-{"thought": "what you see and what you are about to do", "action": {"name": "click", "args": {"x": 120, "y": 340}}}
-
-Available actions:
-${COMPUTER_ACTIONS.map((a) => `  ${a.name}(${a.args}) — ${a.effect}`).join("\n")}
+Call exactly one of the tools you have been given. Do not describe what you would do — do it.
 
 Rules:
-- Reply with the JSON object only. No preamble, no explanation around it.
-- Keep "thought" under 25 words. A long thought can run out of output budget
-  before the action is written, and a reply cut off mid-object is a wasted turn.
+- One tool call per turn, and nothing else.
 - You cannot see element names or ids. Read the screenshot.
 - A click that lands on nothing is still a turn you have spent.
 - To type into a field, click it first, then type. The list has a search box.

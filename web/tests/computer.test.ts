@@ -5,8 +5,10 @@ import path from "node:path";
 import { test } from "node:test";
 
 import {
+  COMPUTER_ACTIONS,
   SCREEN,
   computerPrompt,
+  computerToolSchemas,
   describeResolution,
   resolvePoint,
   type Viewport,
@@ -94,14 +96,60 @@ test("scale errors are caught: half-scale image, full-scale environment", () => 
   assert.equal(bottomRight.y, VIEW.height);
 });
 
-test("the prompt bounds the thought, because a truncated reply is a wasted turn", () => {
+test("the prompt asks for a tool call, not for JSON in the message", () => {
   const prompt = computerPrompt(VIEW);
 
-  // The regression this guards: a model narrated at length, hit the output cap
-  // mid-object, and the run recorded a parse failure that looked like a model
-  // that cannot follow a format.
-  assert.match(prompt, /under 25 words/);
-  assert.match(prompt, /JSON object only/);
+  /*
+   * What this replaced, and why the old assertion is gone rather than relaxed.
+   *
+   * The prompt used to describe an action vocabulary in prose, ask for a JSON
+   * object back in the message text, and warn the model to keep its thought
+   * under 25 words — because a long thought hit the output cap, the reply
+   * arrived as `{"thought": "…", "acti`, and the run recorded a parse failure
+   * that looked like a model unable to follow a format. The warning was a
+   * workaround for a problem the transport was creating.
+   *
+   * Tools remove it at the source: the provider emits a structured call and
+   * validates its arguments against the schema. There is no object for the
+   * model to truncate, so there is nothing to warn it about.
+   */
+  assert.match(prompt, /tools you have been given/i, "the prompt does not ask for a tool call");
+  assert.ok(!/JSON object/i.test(prompt), "the prompt still asks for JSON in the message text");
+  assert.ok(!/under 25 words/.test(prompt), "the thought cap outlived the problem it worked around");
+});
+
+test("every computer action is offered as a schema the provider can validate", () => {
+  const schemas = computerToolSchemas();
+
+  assert.equal(schemas.length, COMPUTER_ACTIONS.length, "an action has no schema");
+  for (const action of COMPUTER_ACTIONS) {
+    const schema = schemas.find((t) => t.function.name === action.name);
+    assert.ok(schema, `${action.name} is not offered as a tool`);
+    assert.equal(schema.function.parameters.additionalProperties, false);
+
+    const required = schema.function.parameters.required;
+    for (const param of action.params) {
+      assert.ok(
+        param.name in schema.function.parameters.properties,
+        `${action.name} does not declare ${param.name}`,
+      );
+      assert.equal(
+        required.includes(param.name),
+        !param.optional,
+        `${action.name}.${param.name} disagrees about being required`,
+      );
+    }
+  }
+});
+
+test("a click asks for two numbers, so a model cannot answer with a string", () => {
+  // The whole point of a schema over a prompt: the provider rejects the wrong
+  // shape before it costs a turn.
+  const click = computerToolSchemas().find((t) => t.function.name === "click");
+  assert.ok(click);
+  assert.equal(click.function.parameters.properties.x.type, "number");
+  assert.equal(click.function.parameters.properties.y.type, "number");
+  assert.deepEqual(click.function.parameters.required, ["x", "y"]);
 });
 
 test("the prompt states the image size the model must answer in", () => {

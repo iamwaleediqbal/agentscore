@@ -49,6 +49,14 @@ export interface ResponseEntry extends BaseEntry {
   text: string;
   /** Set when the reply could not be read as an action. */
   parseError?: string;
+  /**
+   * How the action arrived: as a tool call, or as prose the runner had to read.
+   *
+   * Recorded rather than assumed, because both are possible and they are not
+   * the same result. Absent on runs from before the harness used tool calling
+   * at all, when prose was the only path there was.
+   */
+  transport?: "tool_call" | "prose";
 }
 
 export interface ActionEntry extends BaseEntry {

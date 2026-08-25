@@ -12,7 +12,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ACTION_NAMES } from "@/lib/environment/actions";
-import { CATALOG, type ActionName } from "@/lib/environment/catalog";
+import { CATALOG, type ActionName, argsOf } from "@/lib/environment/catalog";
 import { SystemPrompts } from "@/components/harness/system-prompts";
 import { COMPUTER_ACTIONS } from "@/lib/environment/computer";
 
@@ -23,6 +23,10 @@ export const metadata = { title: "Action spaces" };
 // omitting the four that did.
 const TOOLS = (Object.keys(CATALOG) as ActionName[]).map((name) => ({
   name,
+  // Derived from the same `params` the JSON Schema is built from, so the table
+  // a reader sees and the schema the model is sent cannot describe different
+  // arguments.
+  args: argsOf(CATALOG[name]),
   ...CATALOG[name],
 }));
 export default function Tools() {
@@ -99,7 +103,7 @@ export default function Tools() {
                     <TableRow key={action.name}>
                       <TableCell className="font-mono text-sm font-medium">{action.name}</TableCell>
                       <TableCell className="hidden font-mono text-xs text-muted-foreground sm:table-cell">
-                        {action.args}
+                        {argsOf(action)}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {action.effect}

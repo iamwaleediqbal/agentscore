@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { AFFORDABLE, FREE_ONLY } from "../lib/models.ts";
+import { AFFORDABLE, FREE_ONLY, rejectsToolChoice } from "../lib/models.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const read = (relative: string) => readFileSync(path.join(ROOT, relative), "utf8");
@@ -76,17 +76,112 @@ test("the catalogue filter rejects a model that is free on tokens but charges fo
 /* What the catalogue filter must and must not exclude                   */
 /* -------------------------------------------------------------------- */
 
-test("the filter no longer demands capabilities the code never sends", () => {
+test("the filter demands tool calling, and only tool calling", () => {
   const source = read("lib/models.ts");
 
-  // The harness parses JSON out of plain text: it never sends `tools` or
-  // `response_format`. Requiring them cut eleven free vision models to two,
-  // one of which was a preview endpoint returning empty replies.
-  assert.ok(
-    !/REQUIRED\s*=\s*\["tools", "structured_outputs"\]/.test(source),
-    "the hard tools/structured_outputs requirement must not come back",
+  /*
+   * Two failures, in opposite directions, and the line between them.
+   *
+   * Requiring `tools` AND `structured_outputs` once cut eleven free vision
+   * models to two, one of which was a preview endpoint returning empty replies
+   * — a filter strict enough to starve every run while looking principled. The
+   * fix was to require neither, which was right at the time because the runner
+   * sent neither.
+   *
+   * It sends `tools` now, on every turn of both action spaces, with
+   * `tool_choice: "required"`. So a model without tool support cannot answer at
+   * all and must be filtered out. `response_format` is still never sent, so
+   * `structured_outputs` must still not be required.
+   */
+  assert.match(
+    source,
+    /\.filter\(\(m\) => \(m\.supported_parameters \?\? \[\]\)\.includes\("tools"\)\)/,
+    "a model that cannot make a tool call is still offered turns it cannot use",
   );
-  assert.match(source, /structured:/, "it survives only as a ranking signal");
+  assert.ok(
+    !/includes\("structured_outputs"\)/.test(source),
+    "structured_outputs is required again, and nothing sends response_format",
+  );
+  assert.ok(
+    !/includes\("response_format"\)/.test(source),
+    "response_format is required again, and nothing sends it",
+  );
+});
+
+test("tool_choice stays inside the values OpenRouter documents", () => {
+  /*
+   * Its accepted values are `none`, `auto`, or an object naming one specific
+   * function. `required` is an OpenAI value OpenRouter does not document, and
+   * it was being sent here — an undocumented enum through a router that fans
+   * out to dozens of providers, which fails on some endpoints and not others
+   * for a reason nobody can see from the outside.
+   *
+   * Naming one function is no use either: choosing the action is the task.
+   */
+  const source = read("runner/run.ts");
+
+  assert.match(source, /\n\s*tools,\n/, "the request does not carry the action space as tools");
+  assert.match(source, /tool_choice: "auto"/, "tool_choice is not the documented default");
+  assert.ok(
+    !/tool_choice: "required"/.test(source),
+    "an undocumented tool_choice value is being sent to every provider",
+  );
+});
+
+test("a model that answers in prose is measured, not discarded", () => {
+  // The consequence of not forcing the call, and the honest handling of it. A
+  // model that was handed tools and did not call one is a finding about that
+  // model; recording the turn as prose keeps it, and reading nothing would
+  // throw it away.
+  const source = read("runner/run.ts");
+
+  assert.match(source, /transport: "tool_call" \| "prose"/, "how a turn arrived is not recorded");
+  assert.match(source, /reply\.toolCall\s*\?/, "a tool call is not preferred over the text");
+  assert.match(source, /parseTurn\(reply\.content\)/, "a prose reply is discarded rather than read");
+});
+
+test("an endpoint that refuses tool_choice is retried, not abandoned", () => {
+  /*
+   * Not every endpoint behind OpenRouter accepts the field. Some reject the
+   * value; some fail at the routing layer with "no endpoints found for
+   * tool_choice", which arrives as a **404** — and the rule below it treats any
+   * 4xx as a malformed request and moves to the next model. So a working
+   * endpoint would have been written off over an optional hint, and on a short
+   * chain that is the whole chain.
+   *
+   * The tools are never dropped, only the insistence. A turn without the action
+   * space is not a degraded measurement, it is a different one.
+   */
+  const source = read("runner/run.ts");
+  const models = read("lib/models.ts");
+
+  // Behavioural, not just present. A predicate that always answers false still
+  // compiles, still exports, and quietly restores the old behaviour.
+  assert.equal(
+    rejectsToolChoice("No endpoints found that support tool_choice"),
+    true,
+    "the routing-layer refusal is not recognised",
+  );
+  assert.equal(
+    rejectsToolChoice("Provider returned error: context length exceeded"),
+    false,
+    "an unrelated failure is being treated as a tool_choice refusal",
+  );
+  assert.match(models, /export function rejectsToolChoice/, "nothing recognises the refusal");
+  assert.match(
+    source,
+    /response\.status === 404[\s\S]{0,80}rejectsToolChoice/,
+    "a 404 about tool_choice is still read as a dead model",
+  );
+  assert.match(
+    source,
+    /dropToolChoice \? \{\} : \{ tool_choice: "auto" \}/,
+    "the retry does not actually omit the field",
+  );
+  assert.ok(
+    !/dropTools|tools: undefined/.test(source),
+    "the action space itself is being dropped, which changes what is measured",
+  );
 });
 
 test("models that are not assistants are excluded by name", () => {

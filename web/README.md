@@ -115,6 +115,88 @@ constants the runner sends — a test fails if the page ever transcribes them
 into itself. A benchmark that paraphrases what it told the model is not
 reproducible by anyone reading it.
 
+### How a turn is actually sent
+
+Both action spaces send their vocabulary as **tool schemas** — `tools` plus
+`tool_choice: "auto"` on every request. The schemas are generated from the same
+catalogue the reducer reads, so a model cannot be offered an action the
+environment will refuse, and models are filtered to those the catalogue lists
+under `supported_parameters=tools`.
+
+`auto` rather than `required`, and that is from OpenRouter's schema rather than
+a preference: its documented values are `none`, `auto`, or an object naming one
+specific function. `required` is an OpenAI value OpenRouter does not document,
+and sending an undocumented enum through a router that fans out to dozens of
+providers fails on some endpoints and not others for a reason nobody can see.
+Naming one function is no use either — choosing the action is the task. A few
+endpoints refuse the field altogether, sometimes as a 404 from the routing
+layer; those get one retry without it, keeping the tools and dropping only the
+hint.
+
+This replaced prose. The prompt used to describe the actions in English, ask for
+a JSON object back in the message text, and the runner dug it out with a brace
+matcher. Three things were wrong with that, in increasing order of seriousness:
+
+- A mode called "tool calling" was not calling tools.
+- It manufactured a failure that need not exist. A reply truncated at the output
+  cap arrived as `{"thought": "…", "acti` and was recorded as a model that
+  cannot produce JSON, when it was a model that ran out of room mid-sentence.
+  The prompt carried a *"keep your thought under 25 words"* rule to work around
+  it — a warning about a problem the transport was creating.
+- The two spaces differed in transport as well as in what they were shown, so
+  part of any gap between their verdicts was neither comprehension nor
+  grounding. That gap is the only thing running both is for.
+
+**What this is not, stated plainly.** Anthropic, OpenAI and Google each ship a
+native computer-use tool, with its own action vocabulary and its own coordinate
+convention. None of them is reachable here: OpenRouter's surface is the standard
+chat-completions API with ordinary function calling, so a harness that goes
+through it has to declare its own vocabulary. What runs here is a declared
+action space over screenshots, called through real function calling — not
+`computer_use_preview`, not Anthropic's `computer` tool. Anyone reading a number
+off this should know which of those they are looking at.
+
+So a model can still answer in prose. It is read anyway, and the turn is
+recorded as `transport: "prose"`. "It did the task" and "it did the task
+without ever making a tool call" are different findings, and collapsing them
+would hide the second one. Models that do not advertise `tools` are filtered out
+of the chain entirely — offering one a turn only buys the discovery that the
+catalogue already described.
+
+### The coordinate space, settled from the page
+
+Computer use answers with two numbers, and the numbers do not say what they
+mean. Anthropic's models answer in the pixels of the image they were given;
+several grounding models were trained on a 0–1000 grid regardless of image size;
+a few answer in fractions of the screen.
+
+The rule that used to decide this fired on an overshoot — a value larger than
+the image had to be a grid value. That rule cannot work here and never could:
+the screenshot is 1180×720 and the grid stops at 1000, so on the x axis a grid
+coordinate can **never** overshoot, and on y it only overshoots above 720 of
+1000. A model answering in the grid was read as pixels across roughly three
+quarters of the screen, every click landing up and to the left of what it aimed
+at, and the run recorded as a model that cannot ground rather than a harness
+that cannot convert. That is the most expensive kind of bug here: it costs real
+credits to produce a number that is wrong in a direction that looks plausible.
+
+Nothing about the numbers separates the two readings. The page does. On the
+first click the numbers cannot settle, the runner hit-tests **both** readings
+against the live DOM — two `elementFromPoint` lookups, no model call — and keeps
+whichever one lands on a control. That answer is then pinned for the rest of the
+run, because a convention belongs to the model rather than to an individual
+number, and re-deciding it every turn leaves one run half in each space.
+
+If both readings land on something, or neither does, nothing is pinned. An
+undecided calibration keeps the documented default and tries again on the next
+ambiguous click; pinning a coin flip is worse than not pinning.
+
+Deliberately not a table of which provider is believed to do what. The belief is
+often wrong in both directions — a model documented as answering in a normalised
+grid will answer in pixels when the prompt asks it to. Every run records which
+convention it settled on and shows the conversion on each action, so the guess
+is reviewable rather than silent.
+
 ### The turn budget, and why it differs per space
 
 Each task carries a budget per action space, derived from `clicks` in the
@@ -232,7 +314,7 @@ puts clickmail on `:3000`, the harness on `:3001` and the portfolio on `:3002`.
 ### Checks
 
 ```bash
-npm test                    # 260 tests, no dependencies
+npm test                    # 269 tests, no dependencies
 npm run typecheck           # the app
 npm run typecheck:runner    # the Playwright runner, which the app's tsconfig excludes
 npm run lint

@@ -13,10 +13,17 @@
  * model handed a screenshot is not a failing agent but a category error, and
  * letting one into the picker would put that error on the leaderboard.
  *
- * What it must NOT do is demand capabilities this code never uses. Requiring
- * `tools` and `structured_outputs` reduced eleven free vision models to two,
- * one of which was a preview endpoint that returned nothing — a filter strict
- * enough to starve every run while looking principled.
+ * What it must not do is demand capabilities this code never uses — a filter
+ * strict enough to starve every run while looking principled. `tools` and
+ * `structured_outputs` together once reduced eleven free vision models to two,
+ * one of which was a preview endpoint that returned nothing.
+ *
+ * `tools` alone is now a hard requirement, and that is not a reversal of the
+ * paragraph above: the code does use it. Every turn of both action spaces is a
+ * tool call, so a model without tool support cannot answer the request at all,
+ * and admitting one only buys a turn to discover what the catalogue already
+ * said. `structured_outputs` is still not required, because nothing here sends
+ * `response_format`.
  */
 
 export interface FreeModel {
@@ -26,8 +33,11 @@ export interface FreeModel {
   router?: boolean;
   /** Accepts images, and can therefore be given a screenshot. */
   vision?: boolean;
-  /** Advertises tools or response_format. A preference, never a requirement. */
-  structured?: boolean;
+  /**
+   * Advertises tool calling, which every turn needs. A requirement, not a
+   * preference — see the note at the top of this file.
+   */
+  tools?: boolean;
   /** The provider labels this endpoint preview/alpha/beta. Tried last. */
   preview?: boolean;
 }
@@ -93,6 +103,24 @@ export function reasoningOption(): Record<string, unknown> {
 /** A 400 that is specifically about the reasoning parameter, not the request. */
 export function rejectsReasoning(detail: string): boolean {
   return /reasoning/i.test(detail);
+}
+
+/**
+ * A refusal that is about `tool_choice` itself, rather than about the request.
+ *
+ * Not every endpoint behind OpenRouter accepts the field. Some reject the value
+ * outright; some fail at the routing layer with "no endpoints found for
+ * tool_choice", which arrives as a 404 rather than a 400 and is not obviously
+ * about a parameter at all. Either way the model is perfectly capable of making
+ * the call — it just will not be told it has to — so dropping the field and
+ * asking again is worth one retry, where moving to the next model in the chain
+ * would abandon a working endpoint over an optional hint.
+ *
+ * `tools` itself is never dropped. A turn without the action space is not a
+ * degraded measurement, it is a different one.
+ */
+export function rejectsToolChoice(detail: string): boolean {
+  return /tool_choice/i.test(detail);
 }
 
 /**
@@ -216,6 +244,9 @@ async function allFree(): Promise<FreeModel[]> {
       return out.includes("text") && !out.includes("audio") && !out.includes("image");
     })
     .filter((m) => !NOT_AN_ASSISTANT.test(m.id) && !NOT_AN_ASSISTANT.test(m.name ?? ""))
+    // Every turn is a tool call. A model that cannot make one is not a harder
+    // opponent, it is an endpoint that will refuse the request.
+    .filter((m) => (m.supported_parameters ?? []).includes("tools"))
     .filter((m) => m.id !== ROUTER.id)
     .map((m) => ({
       id: m.id,
@@ -224,14 +255,23 @@ async function allFree(): Promise<FreeModel[]> {
       // Declared by the catalogue, not inferred from the name. Several models
       // read as multimodal and are not.
       vision: (m.architecture?.input_modalities ?? []).includes("image"),
-      // Not required — this harness parses JSON out of plain text and never
-      // sends `tools` or `response_format`. Requiring them cut eleven free
-      // vision models down to one working endpoint. It survives as a ranking
-      // signal only: a model trained to emit structured calls tends to be
-      // better at emitting a bare JSON object too.
-      structured: ["tools", "response_format", "structured_outputs"].some((p) =>
-        (m.supported_parameters ?? []).includes(p),
-      ),
+      /*
+       * Required now, and it did not used to be.
+       *
+       * The harness parsed JSON out of plain text and never sent `tools`, so
+       * this was a ranking signal — a model trained to emit structured calls
+       * tends to be better at emitting a bare JSON object too. Both action
+       * spaces now send `tools` with `tool_choice: "required"`, so a model that
+       * does not support them cannot answer at all, and offering it one is a
+       * turn bought to discover something the catalogue already said.
+       *
+       * It costs coverage, and the cost is real: requiring structure once cut
+       * eleven free vision models to one working endpoint. That is the honest
+       * trade for a mode called tool calling that actually calls tools — and a
+       * chain that is short and works beats a long one that spends the day's
+       * quota finding out.
+       */
+      tools: (m.supported_parameters ?? []).includes("tools"),
       // Endpoints the provider itself labels unfinished. Not excluded — a
       // preview that works is worth having — but tried after stable ones,
       // because the observed failure here was a preview endpoint returning
@@ -241,7 +281,7 @@ async function allFree(): Promise<FreeModel[]> {
     .sort((a, b) => {
       // Stable before preview, then models that advertise structure, then name.
       if (a.preview !== b.preview) return a.preview ? 1 : -1;
-      if (a.structured !== b.structured) return a.structured ? -1 : 1;
+      if (a.tools !== b.tools) return a.tools ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
 

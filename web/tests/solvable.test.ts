@@ -253,7 +253,9 @@ test("the click cost of an action is internally consistent", () => {
       assert.equal(doc.clicks, 1, `${name} has no control, so it costs one turn to be refused`);
       continue;
     }
-    if (/"(body|name|query|to|subject)"/.test(doc.args)) {
+    // Read off the parameters now that they are structured, rather than off a
+    // display string that happened to contain them.
+    if (doc.params.some((param) => ["body", "name", "query", "to", "subject"].includes(param.name))) {
       assert.ok(
         doc.clicks >= 2,
         `${name} takes typed text and claims ${doc.clicks} — focusing a field and typing are two`,

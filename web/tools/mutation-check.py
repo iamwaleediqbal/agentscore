@@ -50,6 +50,24 @@ CASES = [
    "lib/models.ts", '{ reasoning: { effort: REASONING_EFFORT } }', '{ reasoning: { exclude: true } }'),
   ("BUG 9: stop sending the reasoning setting from the runner",
    "runner/run.ts", '...(dropReasoning ? {} : reasoningOption()),', '// MUTATED'),
+
+  ("the action space stops being sent as tools",
+   "runner/run.ts", "            tools,\n", "            // MUTATED\n"),
+
+  ("an undocumented tool_choice value goes back to every provider",
+   "runner/run.ts", 'dropToolChoice ? {} : { tool_choice: "auto" }',
+   'dropToolChoice ? {} : { tool_choice: "required" }'),
+
+  ("a prose reply is discarded instead of measured",
+   "runner/run.ts", "        : parseTurn(reply.content);", "        : { action: null, thought: \"\" };  // MUTATED"),
+
+  ("an endpoint that refuses tool_choice is written off again",
+   "lib/models.ts", "  return /tool_choice/i.test(detail);", "  return false;  // MUTATED"),
+
+  ("a model without tool calling is offered turns it cannot use",
+   "lib/models.ts", '.filter((m) => (m.supported_parameters ?? []).includes("tools"))',
+   "// MUTATED"),
+
 ]
 
 # ---------------------------------------------------------------- safety net

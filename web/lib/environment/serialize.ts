@@ -73,7 +73,15 @@ export function serialize(state: MailState): string {
       .filter(Boolean)
       .join(" ");
 
-    lines.push(`[${email.id}] from=${email.from} to=${email.to}`);
+    /*
+     * The date is on the row for both action spaces, or for neither.
+     *
+     * A computer-use agent reads it off the screenshot because the interface
+     * shows it. If the serialised observation left it out, the two spaces would
+     * be looking at different worlds — and the comparison between them, which is
+     * the whole point of running both, would be measuring the harness.
+     */
+    lines.push(`[${email.id}] from=${email.from} to=${email.to} received=${email.receivedAt}`);
     lines.push(`  subject: ${email.subject || "(no subject)"}`);
     lines.push(`  ${flags}`);
 
@@ -103,15 +111,15 @@ export function serialize(state: MailState): string {
 
 export const SYSTEM_PROMPT = `You are operating an email client.
 
-Reply with exactly one JSON object and nothing else:
-{"thought": "one short sentence", "action": {"name": "...", "args": {...}}}
+Call exactly one of the tools you have been given. Do not describe what you
+would do — do it.
 
-Actions:
+The tools, and what each one does:
 ${actionReference()}
 
 Rules:
-  One action per reply.
+  One tool call per turn, and nothing else.
   Opening an email marks it read. That is a change to the mailbox.
-  Actions marked NOT AVAILABLE will always fail. Find another route.
+  Tools marked NOT AVAILABLE will always fail. Find another route.
   Do only what the task asks. Extra tidying counts against you.
   Call finish when the task is complete.`;

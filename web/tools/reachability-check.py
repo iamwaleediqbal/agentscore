@@ -41,6 +41,8 @@ CASES = [
    '    case "save_draft_XX":\n      return click(page, "composer-save");'),
   ("an action is offered to the model that the parser will reject",
    "lib/environment/actions.ts", '  "save_draft",\n', ''),
+  ("the serialised world stops telling the model what the screen shows",
+   "lib/environment/serialize.ts", ' received=${email.receivedAt}', ''),
 ]
 # ---------------------------------------------------------------- safety net
 #
