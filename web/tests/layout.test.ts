@@ -187,3 +187,139 @@ test("a computer-use action shows where the click actually went", () => {
   // this was captured has no aim and must render without one.
   assert.match(timeline, /typeof label !== "string"/, "a missing label would throw rather than skip");
 });
+
+test("an action shows the screen it was decided from, not only the one it produced", () => {
+  /*
+   * One screenshot per action made a run unreadable in a specific way. An
+   * archive click shows an empty reading pane afterwards — the correct result,
+   * and indistinguishable from a click that hit nothing. The frame the model
+   * was actually looking at when it chose was never on the page at all, so
+   * "did it see the button" could not be answered from the record.
+   */
+  const timeline = read("components/harness/timeline.tsx");
+
+  assert.match(timeline, /entry\.screenshotBefore/, "the frame behind the decision is not rendered");
+  assert.match(timeline, /label="saw"/, "the two frames are not distinguishable");
+  assert.match(timeline, /label="did"/, "the two frames are not distinguishable");
+});
+
+test("a turn that answered with a tool call does not read as an empty one", () => {
+  /*
+   * A tool call comes back with empty message content. The reply pane printed
+   * "(empty)" and the reasoning pane printed "no thought returned" — on every
+   * turn of a run that worked perfectly. Two placeholders reporting success as
+   * failure.
+   */
+  const timeline = read("components/harness/timeline.tsx");
+  const runner = read("runner/run.ts");
+
+  assert.match(
+    timeline,
+    /\(entry\.text \|\| !entry\.reasoning\) && \(/,
+    "the no-thought placeholder still prints over a turn that reasoned",
+  );
+  assert.match(
+    runner,
+    /reply\.content \|\|\n?\s*\(reply\.toolCall/,
+    "the recorded reply is empty whenever the model used a tool",
+  );
+});
+
+test("one capture serves the record and the next prompt", () => {
+  // Two captures of the same moment is wasted work and a way for the file and
+  // the frame the model saw to disagree if anything repainted between them.
+  const runner = read("runner/run.ts");
+
+  assert.match(runner, /interface Frame \{/, "the frame is not modelled as one thing");
+  assert.ok(
+    !/photograph\(page\)/.test(runner),
+    "the runner captures a second time for the model instead of reusing the frame",
+  );
+  assert.match(
+    runner,
+    /const before = frame\?\.path;/,
+    "the previous frame is not reused as this action's before",
+  );
+  // Captured and then actually written onto the entry. Taking the frame and
+  // dropping it leaves the timeline reading a field nothing records.
+  assert.match(
+    runner,
+    /screenshotBefore: before,/,
+    "the frame behind the decision is captured and then thrown away",
+  );
+});
+
+test("the aim is drawn on the screen the model was looking at", () => {
+  /*
+   * The defect this exists for, and it made the pane's stated purpose
+   * impossible rather than merely incomplete.
+   *
+   * The environment pane says it answers "was the decision wrong or was the aim
+   * wrong?" It had one frame — the one taken after the action — and drew the
+   * crosshair on it. An aim is a claim about the screen the model was given, so
+   * painted on the result it points at whatever now happens to sit under those
+   * coordinates. Archive a message and the reading pane empties: the marker
+   * lands on a toolbar that is gone, above the words "Select a message", and
+   * reads as a model clicking into space. The opposite of what happened.
+   */
+  const view = read("components/harness/browser-view.tsx");
+
+  // Two frames, one at a time, switchable — opening on the one behind the
+  // decision, because that is the frame a question is usually being asked about.
+  assert.match(view, /useState<"saw"/, "the pane has no frame toggle");
+  assert.match(view, /\("saw"\)/, "the pane does not open on the frame behind the decision");
+
+  // The marker rides `aimed`, true only for the frame the model saw — or for
+  // the result of an older run that has no other frame to carry it.
+  assert.match(view, /frame\.aimed && onScreen/, "the aim is drawn on whichever frame is showing");
+  assert.match(
+    view,
+    /aimed: !action\.screenshotBefore/,
+    "the result carries an aim marker even when the frame it belongs on exists",
+  );
+});
+
+test("both action spaces are recorded on screen, not just the one shown pictures", () => {
+  /*
+   * Capture was gated on computer use, because a screenshot was something the
+   * *model* was given and tool calling is handed serialised state instead. That
+   * missed the second job a screenshot does: it is how a person reads the run
+   * back. Chromium drives the real page in both spaces through the same driver,
+   * so a tool-mode run was performed in a real browser and recorded as though
+   * nothing had been on screen — the run page went blank, and the comparison
+   * the whole project exists for had a record on one side only.
+   */
+  const runner = read("runner/run.ts");
+
+  assert.ok(
+    !/mode === "computer" \? start : null/.test(runner),
+    "tool-mode runs are recorded with no screen at all",
+  );
+  // The picture is taken in both spaces; only the data URL is mode-specific.
+  assert.match(
+    runner,
+    /await page\.waitForTimeout\(180\);\n\s*const before = frame\?\.path;/,
+    "the settle before the capture is not shared, so one space photographs a stale screen",
+  );
+  assert.match(
+    runner,
+    /image_url: \{ url: frame\?\.dataUrl/,
+    "the inline image is no longer what computer use is actually sent",
+  );
+});
+
+test("the action-space page explains how a turn is actually sent", () => {
+  // The page described what each space *shows* the model and never how a turn
+  // travels. Once both spaces went through real tool calling that became the
+  // more interesting half: it is what makes the two comparable, and it is where
+  // the honest limitation lives.
+  const page = read("app/tools/page.tsx");
+
+  assert.match(page, /How a turn is sent/, "the transport is not described");
+  assert.match(page, /tool_call_id/, "the loop's pairing is not explained");
+  assert.match(
+    page,
+    /not a provider-native computer-use tool/i,
+    "the page lets a reader assume this is Anthropic's or OpenAI's computer tool",
+  );
+});

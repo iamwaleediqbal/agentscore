@@ -204,3 +204,30 @@ test("the quota line never prints a figure that cannot be true", () => {
     "the credit balance is printed to nine decimal places",
   );
 });
+
+test("a paid run says what it can actually cost, from a measured turn", () => {
+  /*
+   * BUDGET is a stop-loss the operator picks before seeing a single price.
+   * Picked blind it ends up an order of magnitude above anything the run can
+   * reach — at which point the turn cap is what bounds the run and the budget
+   * is decoration. 0.30 was sized for the whole suite in both spaces, 208 turns;
+   * spending it on one 22-turn task means the guard cannot fire.
+   *
+   * The first turn's reported cost times the remaining ceiling is rough, and it
+   * is grounded in this model on this task rather than in a guess about how an
+   * image tokenises.
+   */
+  const source = read("runner/run.ts");
+
+  assert.match(source, /projected = reply\.cost \* maxTurns/, "nothing projects the ceiling");
+  assert.match(
+    source,
+    /projected < BUDGET \/ 4/,
+    "a budget far above the reachable maximum is not called out",
+  );
+  assert.match(
+    source,
+    /PAID && projected === null && reply\.cost > 0/,
+    "the projection is recomputed every turn, or runs on a free batch",
+  );
+});

@@ -68,6 +68,14 @@ CASES = [
    "lib/models.ts", '.filter((m) => (m.supported_parameters ?? []).includes("tools"))',
    "// MUTATED"),
 
+
+  ("the assistant turn stops carrying the call it made",
+   "runner/run.ts", "            tool_calls: [reply.toolCall],", "            // MUTATED"),
+
+  ("the outcome goes back as a user message instead of a tool result",
+   "runner/run.ts", '            role: "tool",\n            tool_call_id: reply.toolCall.id,',
+   '            role: "user",  // MUTATED'),
+
 ]
 
 # ---------------------------------------------------------------- safety net

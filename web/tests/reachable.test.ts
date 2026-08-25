@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
-import { ACTION_NAMES, applyAction } from "../lib/environment/actions.ts";
+import { ACTION_NAMES, READING_PANE, applyAction } from "../lib/environment/actions.ts";
 import { CATALOG, actionReference, type ActionName } from "../lib/environment/catalog.ts";
 import { SYSTEM_PROMPT } from "../lib/environment/serialize.ts";
 import { serialize } from "../lib/environment/serialize.ts";
@@ -192,4 +192,57 @@ test("both action spaces are shown the same world", () => {
       `the serialised mailbox does not tell the model when ${email.id} arrived`,
     );
   }
+});
+
+test("the reading pane's actions are refused while a draft covers it", () => {
+  /*
+   * The composer replaces the reader rather than sitting beside it, so while a
+   * draft is open none of the `reader-*` controls exists. The reducer took them
+   * anyway, and three real runs hit it identically: reply, compose, reply again
+   * — and the browser driver spent four seconds waiting for a button that could
+   * not appear, then reported a timeout rather than the reason.
+   *
+   * The conditional form of the bug the interface guards already catch.
+   * `forward` and `mark_read` never have a control; these have one most of the
+   * time, which is what made it easy to miss.
+   */
+  const state = seedState();
+  const target = state.emails.find((e) => e.folder === "inbox");
+  assert.ok(target);
+
+  const composing = applyAction(state, {
+    name: "compose",
+    args: { to: "a@b.example", subject: "draft", body: "half written" },
+  });
+  assert.equal(composing.ok, true);
+  assert.ok(composing.state.composer, "the fixture has no draft open, so this proves nothing");
+
+  for (const name of READING_PANE) {
+    const result = applyAction(composing.state, {
+      name,
+      args: { id: target.id, name: "finance", to: "x@y.example" },
+    });
+    assert.equal(
+      result.ok,
+      false,
+      `${name} was performed while a draft covered the control it needs`,
+    );
+    assert.match(String(result.error), /draft is open/, `${name} failed without saying why`);
+  }
+
+  // And the draft itself survives being refused — losing it would be worse
+  // than the bug.
+  const after = applyAction(composing.state, { name: "archive", args: { id: target.id } });
+  assert.deepEqual(after.state.composer, composing.state.composer);
+});
+
+test("the reading-pane list is the catalogue's, not a second opinion", () => {
+  // Two lists that must agree is one list that will not. Written out in the
+  // reducer because the reducer cannot import the catalogue without a cycle,
+  // and checked against it here instead.
+  const fromCatalogue = (Object.keys(CATALOG) as ActionName[])
+    .filter((name) => CATALOG[name].reach === "reading pane")
+    .sort();
+
+  assert.deepEqual([...READING_PANE].sort(), fromCatalogue, "the two disagree about what lives in the reading pane");
 });

@@ -27,6 +27,7 @@
 # Usage:
 #   ./record-runs.sh                  offer every task in turn
 #   ./record-runs.sh triage           just this one
+#   ./record-runs.sh triage reply-only    these two, one budget between them
 #   ./record-runs.sh --all            no prompting, run everything
 #   ./record-runs.sh --models         show the model chain, spend nothing
 #   MODE=tool ./record-runs.sh        the semantic action space instead
@@ -38,6 +39,21 @@
 # choosing to spend and choosing how much are one decision:
 #
 #   BUDGET=0.30 MODEL=google/gemini-3.7-flash MODE=both ./record-runs.sh
+#
+# Size the budget to what you are actually running. It is a stop-loss, not a
+# spend target, but one set an order of magnitude above anything reachable is
+# not bounding the run — the per-task turn cap is, and the number is decoration.
+# The worst cases, at every task's full turn ceiling:
+#
+#   one task, one space      ~22 turns     BUDGET=0.05
+#   one task, both spaces    ~34 turns     BUDGET=0.05
+#   whole suite, one space  ~130 turns     BUDGET=0.20
+#   whole suite, both        ~208 turns    BUDGET=0.30
+#
+# Real runs come in well under, because a task that is going correctly finishes
+# long before its ceiling. The first paid turn prints what it cost and what that
+# implies for the task's ceiling, so after one turn you are working from a
+# measurement rather than from this table.
 #
 # The batch stops the moment the running total reaches the budget, mid-task if
 # necessary. Without MODEL set to a paid id, nothing can cost anything: every
@@ -63,7 +79,7 @@
 set -eu
 
 case "${1:-}" in
-  -h|--help) sed -n '3,53p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,69p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   --models)
     # Which models a run would try, without starting one or spending anything.
     cd "$(dirname "$0")"
@@ -89,13 +105,22 @@ case "$MODE" in
   *) die "MODE must be computer, tool or both — got \"$MODE\"" ;;
 esac
 
+# Any number of task ids, because one budget should buy one batch.
+#
+# This took a single id, so recording five of the six tasks meant five separate
+# invocations — and BUDGET is per invocation, so five runs of `BUDGET=0.30`
+# authorise 1.50. The alternative was dividing the budget by hand into figures
+# that mean nothing individually. A list keeps it one batch with one ceiling,
+# and leaves the tasks you did not name exactly as they were.
 ONLY=""
 ASSUME_YES=""
-case "${1:-}" in
-  --all) ASSUME_YES="yes" ;;
-  "")    : ;;
-  *)     ONLY="$1" ;;
-esac
+for arg in "$@"; do
+  case "$arg" in
+    --all) ASSUME_YES="yes" ;;
+    -*)    die "unknown option \"$arg\" — try --help" ;;
+    *)     ONLY="$ONLY $arg" ;;
+  esac
+done
 
 say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
@@ -234,15 +259,21 @@ ok "runner dependencies"
 # a typo.
 node --experimental-strip-types runner/run.ts --list > "$TASK_LIST"
 
-if [ -n "$ONLY" ] && ! cut -f1 "$TASK_LIST" | grep -qx "$ONLY"; then
-  printf '\n'
-  cut -f1 "$TASK_LIST" | sed 's/^/    /'
-  die "no task named \"$ONLY\". The ids are listed above."
-fi
+# Every name checked before anything installs a browser. A typo in the fifth id
+# should not cost two minutes of setup to be told about.
+for want in $ONLY; do
+  if ! cut -f1 "$TASK_LIST" | grep -qx "$want"; then
+    printf '\n'
+    cut -f1 "$TASK_LIST" | sed 's/^/    /'
+    die "no task named \"$want\". The ids are listed above."
+  fi
+done
 # An `if`, not `[ … ] && …`. Under `set -e` the AND-list form is exempt only
 # because the test sits in a non-final position, which is a rule worth not
 # depending on in a script that spends money.
-if [ -n "$ONLY" ]; then ok "task \"$ONLY\" exists"; fi
+if [ -n "$ONLY" ]; then
+  ok "recording:$ONLY"
+fi
 
 # Playwright ships its browser separately. Installing twice is cheap; not
 # installing at all fails deep inside the first run with an unhelpful message.
@@ -302,7 +333,14 @@ SKIPPED=0
 exec 3< "$TASK_LIST"
 while IFS="$(printf '\t')" read -r TASK_ID TASK_TITLE TASK_PROMPT <&3; do
   [ -n "$TASK_ID" ] || continue
-  if [ -n "$ONLY" ] && [ "$ONLY" != "$TASK_ID" ]; then continue; fi
+  # Membership, not equality. Padded on both sides so `triage` cannot match
+  # inside a longer id that happens to contain it.
+  if [ -n "$ONLY" ]; then
+    case " $ONLY " in
+      *" $TASK_ID "*) : ;;
+      *)              continue ;;
+    esac
+  fi
 
   printf '\n\033[1m  %s\033[0m  (%s)\n' "$TASK_TITLE" "$TASK_ID"
   printf '  instruction: %s\n' "$TASK_PROMPT"

@@ -434,3 +434,50 @@ test("remaining key credit is not labelled as requests", () => {
   assert.match(script, /of key credit left/);
 });
 
+test("a tool result is returned against the call it answers", () => {
+  /*
+   * The agentic loop, and this was only half of it. The runner sent tools,
+   * received `tool_calls`, and then pushed the assistant turn as plain content
+   * with the outcome as a `user` message. Two things broke.
+   *
+   * `content` is empty on a turn that was nothing but a tool call, so the
+   * model's own action vanished from its history — asked to continue a
+   * conversation in which it could not see what it had done, and left to infer
+   * it from the mailbox handed back. And a result delivered as a user message
+   * is not a tool result: the protocol pairs it to the call by `tool_call_id`,
+   * which is what lets a model attribute an outcome to the thing it did rather
+   * than to the turn it happened on.
+   *
+   * A run passed on the old shape. That is the uncomfortable part — a model
+   * compensating for a malformed transcript is still being measured on
+   * compensating.
+   */
+  const source = read("runner/run.ts");
+
+  assert.match(
+    source,
+    /role: "assistant",\n\s*content: reply\.content \|\| null,\n\s*tool_calls: \[reply\.toolCall\],/,
+    "the assistant turn does not carry the call it made",
+  );
+  assert.match(
+    source,
+    /role: "tool",\n\s*tool_call_id: reply\.toolCall\.id,/,
+    "the outcome is not returned as a tool result against its call",
+  );
+  assert.match(
+    source,
+    /tool_call_id\?: string;/,
+    "the message shape cannot carry a tool result",
+  );
+});
+
+test("a model that answered in prose still gets its result", () => {
+  // No call means nothing to pair against, so the plain shape is correct for it
+  // — and dropping the turn entirely would lose the measurement.
+  const source = read("runner/run.ts");
+  assert.match(
+    source,
+    /messages\.push\(\{ role: "assistant", content: reply\.content \}\);\n\s*messages\.push\(\{ role: "user", content: outcome \}\);/,
+    "a prose turn is dropped from the transcript instead of being answered",
+  );
+});

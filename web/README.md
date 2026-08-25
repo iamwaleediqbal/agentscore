@@ -314,7 +314,7 @@ puts clickmail on `:3000`, the harness on `:3001` and the portfolio on `:3002`.
 ### Checks
 
 ```bash
-npm test                    # 269 tests, no dependencies
+npm test                    # 283 tests, no dependencies
 npm run typecheck           # the app
 npm run typecheck:runner    # the Playwright runner, which the app's tsconfig excludes
 npm run lint
@@ -370,6 +370,15 @@ the version this harness understands.
 A batch stops after the first infrastructure failure rather than grinding
 through five more that will fail identically, and a batch that measured nothing
 does not overwrite what is already published.
+
+Every action in both action spaces carries two frames — the screen the model
+was given, and the screen its action produced — referenced from one file each,
+because turn N's result is turn N+1's input. The aim marker is drawn on the
+first of those and never the second: an aim is a claim about the screen the
+model was looking at, and painted on the result it points at whatever now
+happens to sit under those coordinates. Tool calling is photographed too, even
+though it is never shown a picture: Chromium drives the real page in both
+spaces, and a run nobody can look at is a run nobody can check.
 
 Output is `public/runs/index.json` plus JPEGs under `public/runs/shots/`.
 Commit those and every visitor sees those runs, screenshots and all — no upload

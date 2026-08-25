@@ -65,7 +65,17 @@ export interface ActionEntry extends BaseEntry {
   args: Record<string, unknown>;
   status: ActionStatus;
   error?: string;
-  /** JPEG data URL of the environment after this action. */
+  /**
+   * The screen the model was looking at when it chose this action.
+   *
+   * Without it a run is unreadable in a specific way: an archive click shows an
+   * empty reading pane afterwards, which is the correct result and looks
+   * exactly like a click that hit nothing. The frame that produced the decision
+   * was never on the page. It is the previous turn's `screenshot` by reference,
+   * so it costs no extra capture and no second copy.
+   */
+  screenshotBefore?: string;
+  /** The environment after this action: a path under /runs/shots, or a data URL. */
   screenshot?: string;
   /**
    * The bridge request this action was sent as. The environment answers first

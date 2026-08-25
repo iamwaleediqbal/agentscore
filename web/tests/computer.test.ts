@@ -9,6 +9,7 @@ import {
   SCREEN,
   computerPrompt,
   computerToolSchemas,
+  declaredConvention,
   describeResolution,
   resolvePoint,
   type Viewport,
@@ -376,7 +377,7 @@ test("the runner settles the coordinate space from the page and then stops askin
   // re-deciding it every turn would leave one run half in each space.
   const runner = source("runner/run.ts");
 
-  assert.match(runner, /await calibrate\(page, read, read\.alternate\)/,
+  assert.match(runner, /await calibrate\(page, alone, alone\.alternate\)/,
     "the runner no longer resolves an undecided reading against the page");
   assert.match(runner, /resolvePoint\(x, y, VIEWPORT, convention \?\? undefined\)/,
     "an established convention is not applied to later turns");
@@ -397,5 +398,93 @@ test("an undecided calibration is not pinned", () => {
     driver,
     /const hit = \([^)]*\) =>[^\n]*!GENERIC\.has\(/,
     "any element counts as a hit, so every reading lands on something and nothing is decided",
+  );
+});
+
+test("a reading only one space can explain settles that space by itself", () => {
+  /*
+   * The gap a real paid run fell through.
+   *
+   * The hit test only fires on an ambiguous reading, and can only settle one
+   * where the two candidates land on different things. Every early click that
+   * run was ambiguous and both readings hit some message row, so nothing was
+   * pinned — and then the model sent y=843. On a 720-tall screen that is not a
+   * pixel coordinate under any reading. It was the model saying outright which
+   * space it was in, and nothing was listening: later clicks whose y happened
+   * to fall under 720 were read as pixels and landed where it had not aimed.
+   */
+  const grid = resolvePoint(424, 843, SCREEN);
+  assert.equal(grid.convention, "grid1000");
+  assert.equal(grid.decisive, true, "a y beyond the screen does not settle the space");
+
+  // The far corner: every grid reading of it lands off-image, so pixels is the
+  // only explanation.
+  assert.equal(resolvePoint(SCREEN.imageWidth, SCREEN.imageHeight, SCREEN).decisive, true);
+});
+
+test("agreement between readings is not evidence of anything", () => {
+  // (0, 0) is not ambiguous — both readings are the same pixel — and it says
+  // nothing about which space the model is answering in. Pinning off it would
+  // fix the whole run to whichever convention the rules happened to name.
+  const origin = resolvePoint(0, 0, SCREEN);
+  assert.equal(origin.ambiguous, false);
+  assert.equal(origin.decisive, false, "identical readings were treated as proof");
+});
+
+test("a settled reading is never also decisive", () => {
+  // Once pinned there is no question left to settle, so neither flag may fire
+  // and re-open it.
+  const pinned = resolvePoint(424, 843, SCREEN, "pixels");
+  assert.equal(pinned.decisive, false);
+  assert.equal(pinned.ambiguous, false);
+});
+
+test("the runner settles from the numbers before it settles from the page", () => {
+  // Free and certain beats a DOM lookup that can come back undecided.
+  const runner = source("runner/run.ts");
+  assert.match(
+    runner,
+    /if \(alone\?\.decisive && alone\.convention !== convention\)/,
+    "a self-evident reading is not used to pin the space, or cannot contradict a declaration",
+  );
+  assert.match(
+    runner,
+    /const alone: Resolved \| null = read\s*\n?\s*\? resolvePoint\(read\.raw\.x, read\.raw\.y, VIEWPORT\)/,
+    "the numbers are only ever read through the pinned convention, so they can never disagree with it",
+  );
+  assert.match(runner, /\} else if \(\n?\s*convention === null/, "the hit test is no longer the fallback");
+});
+
+test("the coordinate space is known from the model before a coordinate exists", () => {
+  /*
+   * The same per-provider knowledge polyact carries for Python, and verified
+   * against the providers rather than assumed: Gemini's computer-use models
+   * return a 0-1000 grid and document the conversion; Claude's return "the
+   * pixel space of the full-display screenshots you return".
+   *
+   * A real paid run against Gemini went 22 turns without ever pinning, because
+   * the runner had no prior and the evidence it did have was ambiguous. The
+   * provider had published the answer the whole time.
+   */
+  assert.equal(declaredConvention("google/gemini-3.7-flash"), "grid1000");
+  assert.equal(declaredConvention("anthropic/claude-sonnet-5"), "pixels");
+  assert.equal(declaredConvention("openai/gpt-5.6-luna"), "pixels");
+  assert.equal(declaredConvention("qwen/qwen3-vl-30b-instruct"), "grid1000");
+
+  // Silence, not a guess. An unknown model falls through to the evidence.
+  assert.equal(declaredConvention("minimax/minimax-m3:free"), null);
+  assert.equal(declaredConvention(undefined), null);
+
+  // The router is not a model. Which one answered is only knowable from the
+  // reply, which is why this is keyed on the served model.
+  assert.equal(declaredConvention("openrouter/free"), null);
+});
+
+test("the declaration is keyed on the model that answered, not the one asked for", () => {
+  const runner = source("runner/run.ts");
+  assert.match(
+    runner,
+    /declaredConvention\(reply\.model\)/,
+    "the router's own name would be looked up instead of the model behind it",
   );
 });

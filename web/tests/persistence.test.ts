@@ -144,12 +144,40 @@ test("every published run is one the console can render", () => {
             typeof entry.action_name === "string",
           `run ${run.id} records an action with no name`,
         );
+        /*
+         * Two shapes, both legitimate, and this only accepted one.
+         *
+         * The in-page harness inlined screenshots as data URLs. The Chromium
+         * runner writes real JPEGs under `public/runs/shots/` and references
+         * them by path — deliberately, because fifty base64 images in one JSON
+         * file is a document no editor will open and a payload every visitor
+         * downloads whether or not they look at a run. The first genuinely
+         * recorded run failed here, and the runner was right.
+         *
+         * A path is checked harder than a data URL, though: it has to resolve
+         * to a file that is actually on disk. A reference to a screenshot that
+         * was pruned, or never written, renders as a broken image on a page
+         * whose entire job is showing evidence.
+         */
         if (entry.screenshot !== undefined) {
-          assert.match(
-            String(entry.screenshot),
-            /^data:image\/(jpeg|png|webp);base64,/,
-            `run ${run.id} has a screenshot that is not an inline image`,
-          );
+          const shot = String(entry.screenshot);
+          if (shot.startsWith("data:")) {
+            assert.match(
+              shot,
+              /^data:image\/(jpeg|png|webp);base64,/,
+              `run ${run.id} has an inline screenshot that is not an image`,
+            );
+          } else {
+            assert.match(
+              shot,
+              /^\/runs\/shots\/[^/]+\/[^/]+\.(jpg|jpeg|png|webp)$/,
+              `run ${run.id} has a screenshot reference the console cannot serve: ${shot}`,
+            );
+            assert.ok(
+              existsSync(path.join(ROOT, "public", shot)),
+              `run ${run.id} points at ${shot}, which is not on disk — it renders as a broken image`,
+            );
+          }
         }
       }
     }

@@ -69,12 +69,52 @@ export function matchesQuery(email: Email, query: string | undefined): boolean {
   );
 }
 
+/**
+ * Actions whose control lives in the reading pane.
+ *
+ * The composer does not sit beside the reader, it replaces it — so while a
+ * draft is open none of these controls is on screen, and a person has to send,
+ * save or discard before they can reach one again.
+ *
+ * The reducer performed them anyway. Three real runs hit it the same way: the
+ * agent replied, opened a compose, then asked to reply again, and the browser
+ * driver spent four seconds waiting for a `reader-reply` button that could not
+ * appear. It recovered by discarding and retrying — so the cost was a wasted
+ * turn and an error that named a timeout rather than the reason.
+ *
+ * This is the conditional form of the bug the interface tests already guard:
+ * an action the reducer will take that the interface offers no way to reach.
+ * `forward` and `mark_read` never have a control; these have one most of the
+ * time, which is what made it easy to miss.
+ */
+export const READING_PANE: ReadonlySet<string> = new Set([
+  "reply",
+  "mark_unread",
+  "archive",
+  "trash",
+  "spam",
+  "not_spam",
+  "restore",
+  "delete_forever",
+  "label",
+]);
+
 export function applyAction(state: MailState, action: Action): ApplyResult {
   const next = clone(state);
   const args = action.args ?? {};
   const id = typeof args.id === "string" ? args.id : undefined;
 
   const find = (): Email | undefined => next.emails.find((e) => e.id === id);
+
+  // The composer replaces the reading pane, so none of its controls exists
+  // while a draft is open. Refusing here keeps the reducer and the interface
+  // describing the same application, and tells the agent the way out.
+  if (next.composer && READING_PANE.has(action.name)) {
+    return fail(
+      state,
+      `a draft is open, which replaces the reading pane — send, save or discard it before ${action.name}`,
+    );
+  }
 
   switch (action.name) {
     /**

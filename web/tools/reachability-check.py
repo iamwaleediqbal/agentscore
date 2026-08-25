@@ -43,6 +43,11 @@ CASES = [
    "lib/environment/actions.ts", '  "save_draft",\n', ''),
   ("the serialised world stops telling the model what the screen shows",
    "lib/environment/serialize.ts", ' received=${email.receivedAt}', ''),
+  ("the reducer performs reading-pane actions while a draft covers the controls",
+   "lib/environment/actions.ts", '  if (next.composer && READING_PANE.has(action.name)) {',
+   '  if (false) {'),
+  ("the reading-pane list drifts from the catalogue",
+   "lib/environment/actions.ts", '  "mark_unread",\n', ''),
 ]
 # ---------------------------------------------------------------- safety net
 #

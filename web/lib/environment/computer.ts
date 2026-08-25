@@ -61,10 +61,65 @@ export interface Resolved {
    */
   ambiguous: boolean;
   /**
+   * True when the numbers themselves settle the question: every other reading
+   * puts the point off the screen, so only this one can be what was meant.
+   *
+   * Distinct from "not ambiguous". `(0, 0)` is not ambiguous either — both
+   * readings land on the same pixel — and it tells you nothing about which
+   * space the model is answering in. A y of 843 on a 720-tall screen tells you
+   * everything: no model aiming in pixels emits it.
+   */
+  decisive: boolean;
+  /**
    * Where the same numbers would land under the other reading, in CSS pixels,
    * or null when there is no other reading.
    */
   alternate: { x: number; y: number; convention: Convention } | null;
+}
+
+/**
+ * What a model family answers in, according to the provider that built it.
+ *
+ * This is the same knowledge polyact carries for Python — its `CoordinateSpace`
+ * is `PIXEL` / `NORMALIZED_1000` / `FIXED_GRID`, and its provider adapters map
+ * Anthropic and OpenAI to pixels, Gemini and the Qwen-family grounding models
+ * to the normalised grid. `grid1000` here is polyact's `NORMALIZED_1000`;
+ * `pixels` is its `PIXEL`. Two languages, one set of rules, because the runner
+ * that drives a browser here is TypeScript and polyact is the Python library.
+ *
+ * From the providers, not from folklore:
+ *
+ *   Gemini computer use returns coordinates on a 0-1000 grid and documents the
+ *   conversion as `(value / 1000) * dimension`.
+ *
+ *   Claude's computer use tool returns "the pixel space of the full-display
+ *   screenshots you return, with the origin at the top left", and the current
+ *   toolset rejects display_width_px entirely because of it.
+ *
+ * A declaration is a strong prior and nothing more. It is applied on the first
+ * turn, before any coordinate exists to inspect, and any coordinate that can
+ * only be read one way overrides it — a model that follows the prompt instead
+ * of its training is answering in the space it says it is, whatever its family
+ * usually does.
+ */
+const DECLARED: ReadonlyArray<{ match: RegExp; convention: Convention }> = [
+  { match: /(^|\/)google\/|gemini/i, convention: "grid1000" },
+  { match: /qwen|ui-?tars|internvl/i, convention: "grid1000" },
+  { match: /(^|\/)anthropic\/|claude/i, convention: "pixels" },
+  { match: /(^|\/)openai\/|gpt-|\bo[34]\b/i, convention: "pixels" },
+];
+
+/**
+ * The convention a model is expected to answer in, or null when nothing is
+ * known about it.
+ *
+ * Keyed on the model that actually served the reply rather than the one that
+ * was asked for: `openrouter/free` is a router, and which model answered is
+ * only knowable after it has.
+ */
+export function declaredConvention(modelId: string | undefined): Convention | null {
+  if (!modelId) return null;
+  return DECLARED.find((entry) => entry.match.test(modelId))?.convention ?? null;
 }
 
 /**
@@ -170,6 +225,21 @@ export function resolvePoint(
       ? []
       : others.filter((other) => other.convention !== "fraction" || inUnitRange);
 
+  /*
+   * Whether the numbers rule the alternatives out, rather than merely differing
+   * from them.
+   *
+   * A reading is decisive when some other convention was considered and put the
+   * point off the screen — that is the numbers themselves saying which space
+   * they are in. `(0, 0)` is not decisive: the alternatives were dropped for
+   * landing on the same pixel, which is agreement, not evidence.
+   */
+  const ruledOut = (["pixels", "grid1000", "fraction"] as const)
+    .filter((name) => name !== convention)
+    .filter((name) => name !== "fraction" || inUnitRange)
+    .map(reading)
+    .some((other) => !inImage(other.imageX, other.imageY));
+
   return {
     ...toCss(chosen.imageX, chosen.imageY),
     convention,
@@ -179,6 +249,7 @@ export function resolvePoint(
     // reading left to weigh, and offering one invites a caller to re-decide
     // something the run already decided from evidence.
     ambiguous: !assume && plausible.length > 0,
+    decisive: !assume && plausible.length === 0 && ruledOut,
     alternate:
       !assume && plausible.length
         ? { ...toCss(plausible[0].imageX, plausible[0].imageY), convention: plausible[0].convention }

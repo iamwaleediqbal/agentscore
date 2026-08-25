@@ -326,7 +326,7 @@ CASES = [
    '    ambiguous: false,  // MUTATED', COORDS),
 
   ('the runner stops settling the space against the page',
-   'runner/run.ts', '          const verdict = await calibrate(page, read, read.alternate);',
+   'runner/run.ts', '          const verdict = await calibrate(page, alone, alone.alternate);',
    '          const verdict = null;  // MUTATED', COORDS),
 
   ('the settled space is not applied to the turns after it',
@@ -365,6 +365,89 @@ CASES = [
   ('a sentinel rate limit is printed as though it were a measurement',
    'runner/run.ts', '  if ((data.rate_limit?.requests ?? 0) > 0 && data.rate_limit?.interval) {',
    '  if (data.rate_limit?.requests && data.rate_limit.interval) {  // MUTATED', QUOTA),
+
+
+  ('a paid run stops saying what it can actually cost',
+   'runner/run.ts', '        projected = reply.cost * maxTurns;', '        projected = 0;  // MUTATED', QUOTA),
+
+  ('a budget far above anything reachable is no longer called out',
+   'runner/run.ts', '        if (projected < BUDGET / 4) {', '        if (false) {  // MUTATED', QUOTA),
+
+
+  ('a reading only one space can explain stops settling that space',
+   'lib/environment/computer.ts', '    decisive: !assume && plausible.length === 0 && ruledOut,',
+   '    decisive: false,  // MUTATED', COORDS),
+
+  ('agreement between readings counts as evidence again',
+   'lib/environment/computer.ts', '    .some((other) => !inImage(other.imageX, other.imageY));',
+   '    .length > 0;  // MUTATED', COORDS),
+
+  ('the runner stops settling from the numbers and waits for the page',
+   'runner/run.ts', '        if (alone?.decisive && alone.convention !== convention) {',
+   '        if (false) {  // MUTATED', COORDS),
+
+
+  ('gemini stops being known to answer on a 0-1000 grid',
+   'lib/environment/computer.ts', '{ match: /(^|\\/)google\\/|gemini/i, convention: "grid1000" },',
+   '{ match: /(^|\\/)google\\/|gemini/i, convention: "pixels" },  // MUTATED', COORDS),
+
+  ('the declaration is looked up from the model asked for, not the one that answered',
+   'runner/run.ts', 'const declared = declaredConvention(reply.model);',
+   'const declared = declaredConvention(MODEL);  // MUTATED', COORDS),
+
+  ('a coordinate can no longer contradict what the provider documents',
+   'runner/run.ts', '        const alone: Resolved | null = read\n          ? resolvePoint(read.raw.x, read.raw.y, VIEWPORT)\n          : null;',
+   '        const alone: Resolved | null = read;  // MUTATED', COORDS),
+
+
+  # --- a run has to be readable, not just recorded ---
+
+  ('an action stops carrying the screen it was decided from',
+   'runner/run.ts', '        screenshotBefore: before,', '        // MUTATED', LAYOUT),
+
+  ('the timeline stops distinguishing what was seen from what was done',
+   'components/harness/timeline.tsx', 'label="saw"', 'label="did"', LAYOUT),
+
+  ('a tool-calling turn is recorded as an empty reply again',
+   'runner/run.ts', '        text:\n          reply.content ||',
+   '        text: reply.content,  // MUTATED', LAYOUT),
+
+  ('the no-thought placeholder prints over a turn that reasoned',
+   'components/harness/timeline.tsx', '{(entry.text || !entry.reasoning) && (',
+   '{true && (  {/* MUTATED */}', LAYOUT),
+
+
+  ('the aim goes back on the result instead of the screen it was decided from',
+   'components/harness/browser-view.tsx', '        ? { src: action.screenshot, aimed: !action.screenshotBefore }',
+   '        ? { src: action.screenshot, aimed: true }  // MUTATED', LAYOUT),
+
+  ('the environment pane stops opening on the screen the model was given',
+   'components/harness/browser-view.tsx', 'useState<"saw" | "did">("saw")',
+   'useState<"saw" | "did">("did")  // MUTATED', LAYOUT),
+
+
+  ('tool-mode runs go back to being recorded with no screen at all',
+   'runner/run.ts', '    let frame: Frame | null = start;',
+   '    let frame: Frame | null = mode === "computer" ? start : null;  // MUTATED', LAYOUT),
+
+  ('the capture stops waiting for the repaint, so every frame is the one before',
+   'runner/run.ts', '      await page.waitForTimeout(180);\n      const before = frame?.path;',
+   '      const before = frame?.path;  // MUTATED', LAYOUT),
+
+
+  ('the recorder goes back to reading only its first argument',
+   'record-runs.sh', 'for arg in "$@"; do', 'for arg in "$1"; do  # MUTATED', CLI),
+
+  ('a list of tasks is filtered by equality, so only the last one runs',
+   'record-runs.sh', '      *" $TASK_ID "*) : ;;', '      "$ONLY") : ;;  # MUTATED', CLI),
+
+  ('a short task id matches inside a longer one',
+   'record-runs.sh', '    case " $ONLY " in', '    case "$ONLY" in  # MUTATED', CLI),
+
+
+  ('a task stops requiring any change, so every run passes it including one that did nothing',
+   'lib/harness/tasks.ts', '    expected: (initial) => change(initial, (state) => {\n      const invoice = at(state, "m1");\n      invoice.starred = true;',
+   '    expected: (initial) => change(initial, (state) => {\n      if (state) return;  // MUTATED\n      const invoice = at(state, "m1");\n      invoice.starred = true;', ['tests/solvable.test.ts']),
 
 ]
 

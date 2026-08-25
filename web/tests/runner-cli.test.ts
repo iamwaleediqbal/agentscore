@@ -70,9 +70,12 @@ test("--list still answers before any of that, because the script depends on it"
 
 test("every task the runner can be asked for is one the console can name", () => {
   const script = readFileSync(path.join(ROOT, "record-runs.sh"), "utf8");
+  // Every requested id, checked against the runner's own list, before anything
+  // installs a browser. `$want` rather than `$ONLY` since the argument became a
+  // list — a typo in the fifth id should not cost two minutes of setup either.
   assert.match(
     script,
-    /grep -qx "\$ONLY"/,
+    /grep -qx "\$want"/,
     "the script starts a server and Chromium before finding out the task does not exist",
   );
   assert.ok(TASKS.length >= 6, `only ${TASKS.length} tasks — the menu is worth checking against`);
@@ -82,4 +85,33 @@ test("the recording script rejects an action space it cannot run", () => {
   const script = readFileSync(path.join(ROOT, "record-runs.sh"), "utf8");
   assert.match(script, /computer\|tool\|both\) : ;;/, "MODE is not validated");
   assert.match(script, /MODE must be computer, tool or both/);
+});
+
+test("the recorder takes a list of tasks, not just one", () => {
+  /*
+   * One budget should buy one batch.
+   *
+   * This accepted a single id, so recording five of the six tasks meant five
+   * invocations — and BUDGET is per invocation, so five runs at 0.30 authorise
+   * 1.50. The alternative was splitting the ceiling by hand into five figures
+   * that mean nothing on their own. A list keeps it one batch under one
+   * ceiling, and leaves untouched whatever was recorded for the tasks not named.
+   */
+  const script = readFileSync(path.join(ROOT, "record-runs.sh"), "utf8");
+
+  assert.match(script, /for arg in "\$@"; do/, "only the first argument is read");
+  assert.match(script, /ONLY="\$ONLY \$arg"/, "task ids do not accumulate");
+
+  // Membership, padded, so a short id cannot match inside a longer one.
+  assert.match(
+    script,
+    /case " \$ONLY " in\n\s*\*" \$TASK_ID "\*\)/,
+    "the filter compares by equality, so a list can only ever run its last entry",
+  );
+
+  // Every name checked before anything installs a browser.
+  assert.match(script, /for want in \$ONLY; do/, "a typo in a later id is only found after setup");
+
+  // An unknown flag is refused rather than silently treated as a task name.
+  assert.match(script, /-\*\)\s*die "unknown option/, "a mistyped flag becomes a task id");
 });

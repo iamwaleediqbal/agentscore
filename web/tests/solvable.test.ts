@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { type Action, applyAction } from "../lib/environment/actions.ts";
 import { CATALOG, type ActionName } from "../lib/environment/catalog.ts";
 import { MAILBOX } from "../lib/environment/describe.ts";
-import { grade } from "../lib/harness/grade.ts";
+import { diff, grade } from "../lib/harness/grade.ts";
 import type { MailState } from "../lib/environment/state.ts";
 import { TASKS, offlineSeed, taskById, turnsFor } from "../lib/harness/tasks.ts";
 
@@ -265,4 +265,63 @@ test("the click cost of an action is internally consistent", () => {
 
   // Three, because it has a field, the text, and a separate Add button.
   assert.ok(CATALOG.label.clicks >= 3, `label costs ${CATALOG.label.clicks}, which pays for two of those`);
+});
+
+test("no task asks for a change the seed has already made", () => {
+  /*
+   * A required change that is already true is not a requirement.
+   *
+   * The seeded mailbox ships with three messages starred, several read, and
+   * mail already in the archive — deliberately, because an inbox where nothing
+   * has ever happened is not an inbox. But it means a task can be written
+   * against a state that already satisfies it, and the failure is silent in the
+   * worst way: `diff(initial → expected)` returns nothing for that field, so
+   * the requirement never enters the grade, and every run passes it including
+   * a run that did nothing at all.
+   *
+   * Nothing else catches this. The solvability tests above drive a correct
+   * policy through and check it passes, which it would either way.
+   */
+  for (const task of TASKS) {
+    const initial = offlineSeed();
+    const required = diff(MAILBOX, initial, task.expected(initial));
+
+    assert.ok(
+      required.length > 0,
+      `${task.id} requires no change to the seeded mailbox — every run passes it, including one that does nothing`,
+    );
+
+    // And each one has to be a real move, not a field being set to what it
+    // already holds.
+    for (const change of required) {
+      assert.notDeepEqual(
+        change.before,
+        change.after,
+        `${task.id} "requires" ${change.path} to become what it already is`,
+      );
+    }
+  }
+});
+
+test("the seed's own starred mail is never what a task asks for", () => {
+  // The specific version of the above that is easiest to write by accident,
+  // and the one that sent a reader to their browser's localStorage wondering
+  // why a message was starred that no agent had touched.
+  const seeded = new Set(
+    offlineSeed()
+      .emails.filter((email) => email.starred)
+      .map((email) => email.id),
+  );
+  assert.ok(seeded.size > 0, "the seed stars nothing, so this proves nothing");
+
+  for (const task of TASKS) {
+    const initial = offlineSeed();
+    for (const change of diff(MAILBOX, initial, task.expected(initial))) {
+      if (!change.path.endsWith(".starred") || change.after !== true) continue;
+      const already = initial.emails.find(
+        (email) => MAILBOX.subjectOf(change.path).includes(email.from) && seeded.has(email.id),
+      );
+      assert.ok(!already, `${task.id} asks for a star the seed already applied to ${already?.id}`);
+    }
+  }
 });

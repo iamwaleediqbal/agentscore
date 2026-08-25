@@ -55,6 +55,52 @@ export default function Tools() {
         </p>
       </header>
 
+      {/* --------------------------------------------------- how a turn is sent */}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold tracking-tight">How a turn is sent</h2>
+
+        <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
+          Both spaces send their action set as JSON Schema tool definitions and take a tool
+          call back — the same transport, so the only difference between them is what the
+          model is shown and what it can name. That matters for the comparison: if one space
+          replied with a structured call and the other with prose in a message, part of any
+          gap between their scores would be the transport rather than the skill.
+        </p>
+
+        <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
+          In tool calling the loop closes the way an agent loop is supposed to. The call goes
+          out, the environment runs it, and the outcome comes back as a{" "}
+          <span className="font-mono text-foreground">tool</span> message paired to that call
+          by its <span className="font-mono text-foreground">tool_call_id</span>, carrying the
+          mailbox as it now stands. The model can see what it did, not just where it ended up.
+          Computer use has no such pairing: each turn is a fresh request, and the result of an
+          action is the next screenshot.
+        </p>
+
+        <Alert>
+          <AlertDescription className="space-y-2">
+            <p className="text-sm leading-relaxed">
+              <span className="font-medium text-foreground">
+                This is not a provider-native computer-use tool.
+              </span>{" "}
+              Anthropic, OpenAI and Google each ship one, with its own action vocabulary and
+              its own coordinate convention. None is reachable through OpenRouter, whose
+              surface is the standard chat-completions API with ordinary function calling — so
+              a harness going through it declares its own vocabulary. What runs here is a
+              declared action space over screenshots, called through real function calling.
+            </p>
+            <p className="text-sm leading-relaxed">
+              The coordinate convention is still a per-model fact, and it is treated as one:
+              Gemini answers on a 0&ndash;1000 grid, Anthropic and OpenAI in the pixels of the
+              screenshot they were given. A run pins its model&apos;s convention on the first
+              turn and records which one it used, because reading one as the other puts every
+              click somewhere the model never aimed.
+            </p>
+          </AlertDescription>
+        </Alert>
+      </section>
+
       {/* ------------------------------------------------------ computer use */}
 
       <section className="space-y-3">

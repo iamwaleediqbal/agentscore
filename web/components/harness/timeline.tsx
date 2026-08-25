@@ -127,9 +127,18 @@ export function Timeline({
                         label="Reasoning"
                         meta={`${(entry.latencyMs / 1000).toFixed(1)}s · ${entry.usage.input} in · ${entry.usage.output} out`}
                       />
-                      <p className="mt-1 text-sm leading-relaxed break-words text-muted-foreground">
-                        {entry.text || <span className="italic">no thought returned</span>}
-                      </p>
+                      {/*
+                        "no thought returned" only when there is genuinely
+                        nothing. A tool-calling turn has no prose thought — the
+                        deliberation arrives as the provider's reasoning below —
+                        so printing the placeholder above it read as a failure on
+                        exactly the turns that went best.
+                      */}
+                      {(entry.text || !entry.reasoning) && (
+                        <p className="mt-1 text-sm leading-relaxed break-words text-muted-foreground">
+                          {entry.text || <span className="italic">no thought returned</span>}
+                        </p>
+                      )}
                       {entry.reasoning && <Reasoning text={entry.reasoning} />}
                     </div>
                   )}
@@ -181,15 +190,35 @@ export function Timeline({
                       {entry.error && (
                         <p className="mt-1 text-xs text-status-critical">{entry.error}</p>
                       )}
-                      {entry.screenshot && !compact && (
-                        <button
-                          onClick={() => setZoom(entry.screenshot!)}
-                          className="mt-2 block w-full max-w-[280px] overflow-hidden rounded-md border transition-colors hover:border-primary"
-                          aria-label={`Screen after turn ${entry.turn}`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={entry.screenshot} alt="" loading="lazy" className="block w-full" />
-                        </button>
+                      {/*
+                        Both frames, labelled, in that order.
+                        
+                        One screenshot per action made a run unreadable in a
+                        specific way: an archive click shows an empty reading
+                        pane afterwards, which is the correct result and is
+                        indistinguishable from a click that hit nothing. Seeing
+                        the message open in "saw" and gone in "did" is the whole
+                        answer, and neither frame gives it alone.
+                      */}
+                      {!compact && (entry.screenshotBefore || entry.screenshot) && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {entry.screenshotBefore && (
+                            <Frame
+                              src={entry.screenshotBefore}
+                              label="saw"
+                              hint={`Screen the model was shown before turn ${entry.turn}`}
+                              onZoom={setZoom}
+                            />
+                          )}
+                          {entry.screenshot && (
+                            <Frame
+                              src={entry.screenshot}
+                              label="did"
+                              hint={`Screen after turn ${entry.turn}`}
+                              onZoom={setZoom}
+                            />
+                          )}
+                        </div>
                       )}
                     </div>
                   )}
@@ -282,6 +311,35 @@ function aimOf(entry: { metadata?: Record<string, unknown> }): string | null {
   return typeof calibrated === "string"
     ? `${label}  ·  space settled as ${calibrated} from the page, and pinned`
     : label;
+}
+
+/** One labelled frame. Small enough to sit beside its pair, click to enlarge. */
+function Frame({
+  src,
+  label,
+  hint,
+  onZoom,
+}: {
+  src: string;
+  label: string;
+  hint: string;
+  onZoom: (src: string) => void;
+}) {
+  return (
+    <figure className="m-0 w-full max-w-[220px] min-w-0">
+      <button
+        onClick={() => onZoom(src)}
+        className="block w-full overflow-hidden rounded-md border transition-colors hover:border-primary"
+        aria-label={hint}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt="" loading="lazy" className="block w-full" />
+      </button>
+      <figcaption className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </figcaption>
+    </figure>
+  );
 }
 
 function Row({ label, meta }: { label: string; meta?: string }) {

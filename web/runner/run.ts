@@ -28,6 +28,7 @@ import {
   type Viewport,
   computerPrompt,
   computerToolSchemas,
+  declaredConvention,
   describeResolution,
   resolvePoint,
 } from "../lib/environment/computer.ts";
@@ -57,7 +58,6 @@ import {
   observe,
   perform,
   performComputer,
-  photograph,
   begin,
   readState,
 } from "./driver.ts";
@@ -187,14 +187,42 @@ const OUT = path.resolve("public/runs");
 const NO_CONTROL = new Set(["forward", "label"]);
 
 /** JPEG keeps a run's artifacts small enough to live in the repo. */
-async function shoot(
+/**
+ * One photograph, serving both purposes it has.
+ *
+ * A frame of the screen is two things at once: the result of the action that
+ * just happened, and the thing the model is about to be shown. This used to
+ * take it twice — `page.screenshot` to a file for the record, then again to a
+ * data URL for the next prompt — two captures of the same moment, which is both
+ * wasted work and a way for the two to disagree if anything repainted between
+ * them.
+ *
+ * Playwright writes the file and hands back the buffer from the same call, so
+ * one capture answers both. The path goes on the run record; the data URL goes
+ * to the model.
+ */
+interface Frame {
+  /** Where the console will serve it from. */
+  path: string;
+  /** The same pixels, inline, for the next request. */
+  dataUrl: string;
+}
+
+async function capture(
   page: import("playwright").Page,
   dir: string,
   runFolder: string,
   name: string,
-): Promise<string> {
-  await page.screenshot({ path: path.join(dir, `${name}.jpg`), type: "jpeg", quality: 72 });
-  return `/runs/shots/${runFolder}/${name}.jpg`;
+): Promise<Frame> {
+  const buffer = await page.screenshot({
+    path: path.join(dir, `${name}.jpg`),
+    type: "jpeg",
+    quality: 72,
+  });
+  return {
+    path: `/runs/shots/${runFolder}/${name}.jpg`,
+    dataUrl: `data:image/jpeg;base64,${buffer.toString("base64")}`,
+  };
 }
 
 function arg(name: string): string | undefined {
@@ -206,7 +234,12 @@ type Content = string | Array<Record<string, unknown>>;
 
 interface Message {
   role: string;
-  content: Content;
+  /** Null on an assistant turn that was nothing but a tool call. */
+  content: Content | null;
+  /** Echoed back verbatim on the assistant turn that made them. */
+  tool_calls?: ToolCall[];
+  /** Which call this message is the result of. Required on a `tool` message. */
+  tool_call_id?: string;
 }
 
 interface Reply {
@@ -698,13 +731,38 @@ async function runTask(
      * from both came from the application, not from the harness's idea of it.
      */
     initial = await begin(page);
-    await shoot(page, shotDir, id, "00-start");
+    // A bookend for both action spaces: the world before anything touched it.
+    const start = await capture(page, shotDir, id, "00-start");
 
     // Computer use sends one screenshot per turn and a short written history.
     // Tool calling sends a serialised mailbox and the full transcript. They are
     // different observations, so they are different conversations.
     const history: string[] = [];
-    let screen = mode === "computer" ? await photograph(page) : "";
+    /*
+     * The frame the model is looking at, which is also the frame the last
+     * action produced.
+     *
+     * Held as one value rather than two because it is one moment. Turn N's
+     * "after" is turn N+1's "before", so the record can reference the same file
+     * from both sides instead of storing the same pixels twice.
+     */
+    /*
+     * Both action spaces, not just the one that sends pictures.
+     *
+     * Capture used to be gated on computer use, because a screenshot was
+     * something the *model* was given and tool calling is handed serialised
+     * state instead. But a screenshot has a second job the gate ignored: it is
+     * how a person reads the run back. Chromium is driving the real page in
+     * both spaces — tool calling clicks the same controls through the same
+     * driver — so a tool-mode run was being performed in a real browser and
+     * recorded as though nothing had been on screen. The run detail page went
+     * blank, and the two spaces could not be compared side by side because only
+     * one of them had a record.
+     *
+     * The data URL is still only *sent* in computer use. The file is written in
+     * both.
+     */
+    let frame: Frame | null = start;
 
     const messages: Message[] =
       mode === "computer"
@@ -726,6 +784,8 @@ async function runTask(
     const tools = mode === "computer" ? computerToolSchemas() : toolSchemas();
 
     let silent = 0;
+    /** Set once, from the first turn that reports a price. */
+    let projected: number | null = null;
     for (let turn = 1; turn <= maxTurns; turn++) {
       turns = turn;
 
@@ -746,7 +806,7 @@ async function runTask(
                       .filter(Boolean)
                       .join("\n"),
                   },
-                  { type: "image_url", image_url: { url: screen } },
+                  { type: "image_url", image_url: { url: frame?.dataUrl ?? "" } },
                 ],
               },
             ]
@@ -768,6 +828,32 @@ async function runTask(
         : parseTurn(reply.content);
       const transport: "tool_call" | "prose" = reply.toolCall ? "tool_call" : "prose";
 
+      /*
+       * The strongest thing available on turn one: what this model's provider
+       * says it answers in.
+       *
+       * Keyed on the model that actually served the reply, not the one asked
+       * for — `openrouter/free` is a router and only the answer names the
+       * model. It lands before any coordinate has been seen, so the very first
+       * click is converted correctly instead of waiting for a reading the
+       * numbers happen to settle.
+       *
+       * A prior, not a verdict: a decisive reading below overrides it, because
+       * a model that follows the prompt instead of its training is answering in
+       * the space it says it is.
+       */
+      if (mode === "computer" && convention === null) {
+        const declared = declaredConvention(reply.model);
+        if (declared) {
+          convention = declared;
+          calibratedOn = turn;
+          console.log(
+            `  coordinate space set to ${declared} — ${reply.model} is documented as ` +
+              `answering in it. Any coordinate that says otherwise will override this.`,
+          );
+        }
+      }
+
       entries.push({
         id: `${id}-t${turn}-think`,
         entry_type: "model_thinking",
@@ -781,12 +867,58 @@ async function runTask(
         model: reply.model,
       });
 
+      /*
+       * What this task would cost if it ran to its ceiling, measured rather
+       * than modelled.
+       *
+       * BUDGET is a stop-loss the operator has to pick before seeing a single
+       * price, and picking it blind is how it ends up an order of magnitude
+       * above anything that could happen — at which point it is not bounding
+       * the run, the turn cap is, and the number is decoration.
+       *
+       * The provider reports what the first turn actually cost. Multiplying
+       * that by the turns still available is a rough figure and says so, but it
+       * is grounded in this model on this task rather than in an estimate of
+       * how an image tokenises.
+       */
+      if (PAID && projected === null && reply.cost > 0) {
+        projected = reply.cost * maxTurns;
+        console.log(
+          `  first turn cost ${reply.cost.toFixed(5)} — this task can reach ` +
+            `~${projected.toFixed(3)} at its ${maxTurns}-turn ceiling ` +
+            `(budget ${BUDGET})`,
+        );
+        if (projected < BUDGET / 4) {
+          console.log(
+            `  the budget is well above anything this run can spend, so the turn ` +
+              `cap is what is actually bounding it`,
+          );
+        }
+      }
+
       entries.push({
         id: `${id}-t${turn}-say`,
         entry_type: "model_response",
         turn,
         at: Date.now(),
-        text: reply.content,
+        /*
+         * What the provider actually returned.
+         *
+         * A tool call comes back with empty message content, so this rendered as
+         * "(empty)" on every turn of a successful run — a page whose job is
+         * showing what was said, showing nothing, on the runs that worked best.
+         * The call itself is what was said, so that is what is recorded when
+         * there is no prose beside it.
+         */
+        text:
+          reply.content ||
+          (reply.toolCall
+            ? `${reply.toolCall.function?.name ?? "?"}(${
+                typeof reply.toolCall.function?.arguments === "string"
+                  ? reply.toolCall.function.arguments
+                  : JSON.stringify(reply.toolCall.function?.arguments ?? {})
+              })`
+            : ""),
         parseError: parsed.action ? undefined : parsed.error,
         transport,
       });
@@ -879,17 +1011,72 @@ async function runTask(
          * model call, and the answer holds for the rest of the run — a
          * convention belongs to the model, not to the individual number.
          */
-        if (read && read.ambiguous && read.alternate && !read.outOfBounds) {
-          const verdict = await calibrate(page, read, read.alternate);
+        /*
+         * What the numbers say on their own, whatever is pinned.
+         *
+         * `read` above is resolved *with* the pinned convention, so once
+         * anything is pinned it can never report itself decisive or ambiguous —
+         * there is no open question left for it to answer. Re-resolving the same
+         * raw pair with nothing assumed is what makes a coordinate able to
+         * contradict the declaration above it. Pure arithmetic, no page, no
+         * model.
+         */
+        const alone: Resolved | null = read
+          ? resolvePoint(read.raw.x, read.raw.y, VIEWPORT)
+          : null;
+
+        /*
+         * A reading only one space can explain, and the reason a real run needed
+         * it.
+         *
+         * The hit test below only fires on an *ambiguous* reading, and can only
+         * settle one whose two candidates land on different things. On the first
+         * paid run every early click was ambiguous and both readings hit some
+         * message row, so nothing was ever pinned — and then turn 3 sent y=843.
+         * On a 720-tall screen that is not a pixel coordinate under any reading:
+         * the model saying outright which space it is in, with nothing
+         * listening. Clicks whose y happened to fall under 720 were then read as
+         * pixels and landed where it had not aimed. One trajectory, two spaces,
+         * and real credits spent measuring the harness.
+         *
+         * This outranks the provider's declaration. A model that follows the
+         * prompt instead of its training is answering in the space it says it
+         * is, and the coordinate is the model saying so.
+         */
+        if (alone?.decisive && alone.convention !== convention) {
+          if (convention !== null) {
+            console.log(
+              `  (${alone.raw.x}, ${alone.raw.y}) can only be ${alone.convention}, not the ` +
+                `${convention} its provider documents — going with the coordinate.`,
+            );
+          } else {
+            console.log(
+              `  coordinate space settled as ${alone.convention} — (${alone.raw.x}, ` +
+                `${alone.raw.y}) is not a legal reading in any other space.`,
+            );
+          }
+          convention = alone.convention;
+          calibratedOn = turn;
+          point = resolvePoint(alone.raw.x, alone.raw.y, VIEWPORT, alone.convention);
+        } else if (
+          convention === null &&
+          alone?.ambiguous &&
+          alone.alternate &&
+          !alone.outOfBounds
+        ) {
+          // Nothing declared and nothing self-evident: ask the page which of the
+          // two readings lands on a control. Two elementFromPoint lookups, no
+          // model call.
+          const verdict = await calibrate(page, alone, alone.alternate);
           if (verdict) {
             const settled: Convention =
-              verdict === "primary" ? read.convention : read.alternate.convention;
+              verdict === "primary" ? alone.convention : alone.alternate.convention;
             convention = settled;
-            point = resolvePoint(read.raw.x, read.raw.y, VIEWPORT, settled);
+            point = resolvePoint(alone.raw.x, alone.raw.y, VIEWPORT, settled);
             calibratedOn = turn;
             console.log(
               `  coordinate space settled as ${settled} — both readings of ` +
-                `(${read.raw.x}, ${read.raw.y}) were hit-tested against the page`,
+                `(${alone.raw.x}, ${alone.raw.y}) were hit-tested against the page`,
             );
           }
         }
@@ -897,9 +1084,6 @@ async function runTask(
         const outcome = await performComputer(page, parsed.action, point);
         error = outcome.ok ? undefined : outcome.error;
         hit = outcome.hit;
-        // Chromium repaints asynchronously; photographing immediately catches
-        // the screen the action started from rather than the one it produced.
-        await page.waitForTimeout(180);
       } else {
         try {
           await perform(page, parsed.action);
@@ -911,9 +1095,30 @@ async function runTask(
         }
       }
 
-      // Photographed after the click lands, so the picture shows the result of
-      // this action rather than the screen it started from.
-      const shot = await shoot(
+      /*
+       * Before and after, for every action.
+       *
+       * The record carried one screenshot per action — the one taken *after* it
+       * landed — and reading a run back was guesswork as a result: an archive
+       * click showed an empty reading pane, which is the correct result and
+       * looks exactly like a click that hit nothing. What the model was looking
+       * at when it decided was never on the page at all.
+       *
+       * `before` is the frame the model was actually shown, by reference to the
+       * file the previous turn already wrote. No extra capture, no second copy.
+       */
+      /*
+       * Settle, then photograph, for both spaces.
+       *
+       * Chromium repaints asynchronously, so capturing the instant an action
+       * returns catches the screen it started from rather than the one it
+       * produced. The wait used to live inside the computer-use branch only —
+       * which was harmless while tool mode took no pictures, and would have
+       * produced a whole run of stale ones the moment it did.
+       */
+      await page.waitForTimeout(180);
+      const before = frame?.path;
+      frame = await capture(
         page,
         shotDir,
         id,
@@ -935,7 +1140,8 @@ async function runTask(
         args: parsed.action.args ?? {},
         status: actionStatus,
         error,
-        screenshot: shot,
+        screenshotBefore: before,
+        screenshot: frame?.path,
         metadata: {
           driver: "playwright",
           hit,
@@ -960,23 +1166,58 @@ async function runTask(
             error ?? `hit ${hit ?? "something"}`
           }`,
         );
-        screen = await photograph(page);
       } else {
         const observed = await observe(page);
-        messages.push({ role: "assistant", content: reply.content });
-        messages.push({
-          role: "user",
-          content: error
-            ? `That failed: ${error}\n\nScreen:\n${observed}`
-            : `Done. Screen now:\n${observed}`,
-        });
+
+        /*
+         * The loop, closed properly: a call goes out, its result comes back
+         * against its id.
+         *
+         * This pushed the assistant turn as `{ role: "assistant", content }` and
+         * the outcome as a `user` message. Once the runner started calling tools
+         * that stopped being a simplification and became wrong twice over.
+         * `content` is empty on a turn that was nothing but a tool call, so the
+         * model's own action vanished from its history — it was being asked to
+         * continue a conversation in which it could not see what it had done,
+         * and had to infer it from the mailbox it was handed back. And a result
+         * delivered as a user message is not a tool result: the protocol pairs
+         * it to the call by `tool_call_id`, which is what lets a model attribute
+         * an outcome to the thing it did rather than to the turn it happened on.
+         *
+         * It tolerated the old shape — a run passed on it — which is the part
+         * worth being uncomfortable about. A model compensating for a malformed
+         * transcript is still being measured on compensating.
+         */
+        const outcome = error
+          ? `Failed: ${error}\n\nScreen:\n${observed}`
+          : `Done. Screen now:\n${observed}`;
+
+        if (reply.toolCall?.id) {
+          messages.push({
+            // Verbatim, because the provider pairs the result to this exact
+            // object. Re-describing the call risks describing it differently.
+            role: "assistant",
+            content: reply.content || null,
+            tool_calls: [reply.toolCall],
+          });
+          messages.push({
+            role: "tool",
+            tool_call_id: reply.toolCall.id,
+            content: outcome,
+          });
+        } else {
+          // A model that answered in prose, or one whose call carried no id.
+          // The old shape is right for it: there is no call to pair against.
+          messages.push({ role: "assistant", content: reply.content });
+          messages.push({ role: "user", content: outcome });
+        }
       }
 
       if (turn === maxTurns) status = "max_turns";
     }
 
     final = await readState(page);
-    await shoot(page, shotDir, id, "zz-final");
+    await capture(page, shotDir, id, "zz-final");
   } catch (caught) {
     status = "infrastructure_error";
     detail = String(caught instanceof Error ? caught.message : caught);
