@@ -78,6 +78,9 @@ export function StateComparison({ run }: { run: RunRecord }) {
   );
 }
 
+/** Rows a list shows before it becomes a scroll container rather than a page. */
+const VISIBLE = 5;
+
 function Row({
   title,
   rows,
@@ -91,13 +94,41 @@ function Row({
 }) {
   return (
     <div className="space-y-2">
-      <h3 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </h3>
+      <div className="flex items-baseline justify-between gap-2 px-1">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {title}
+        </h3>
+        {rows.length > 0 && (
+          <span className="tabular text-[11px] text-muted-foreground">
+            {rows.length} {rows.length === 1 ? "change" : "changes"}
+            {rows.length > VISIBLE && " · scroll for the rest"}
+          </span>
+        )}
+      </div>
       {rows.length === 0 ? (
         <p className="px-1 text-sm text-muted-foreground">{empty}</p>
       ) : (
-        <ul className="space-y-1.5">
+        /*
+         * Bounded, and its own scroll container.
+         *
+         * An agent that went wrong in the interesting way goes wrong at length:
+         * a run that spent its whole turn budget sending the same reply over
+         * and over produced twenty unrequested changes, and an unbounded list
+         * of them pushed the action timeline — the screenshots, the thing you
+         * open a failed run to look at — several screens below the fold. The
+         * verdict is the summary; it must not be able to bury the evidence.
+         *
+         * The count sits in the header so the size of the list is legible
+         * without scrolling it, which is the number a reader actually wants
+         * from twenty near-identical rows.
+         */
+        <ul
+          className={cn(
+            "space-y-1.5",
+            rows.length > VISIBLE &&
+              "max-h-[19rem] overflow-y-auto rounded-md border border-dashed p-1.5",
+          )}
+        >
           {rows.map(({ change, done }) => (
             <li
               key={change.path}

@@ -298,7 +298,7 @@ Node 22 or newer. Everything except recording works with no key and nothing
 deployed.
 
 ```bash
-git clone git@github.com-personal:iamwaleediqbal/agentscore.git
+git clone https://github.com/iamwaleediqbal/agentscore.git
 cd agentscore/web
 npm install
 npm run dev            # http://localhost:3000
@@ -308,13 +308,13 @@ npm run dev            # http://localhost:3000
 suite has no dependencies at all, just Node's own test runner and type
 stripping. That is also why CI runs the tests before the install step.
 
-To run all three apps at once from the umbrella folder, `./run-all.sh --dev`
+The gym is a separate deployment; point `GYM_URL` at a local checkout of it if you are changing both at once
 puts clickmail on `:3000`, the harness on `:3001` and the portfolio on `:3002`.
 
 ### Checks
 
 ```bash
-npm test                    # 283 tests, no dependencies
+npm test                    # 331 tests, no dependencies
 npm run typecheck           # the app
 npm run typecheck:runner    # the Playwright runner, which the app's tsconfig excludes
 npm run lint
@@ -411,8 +411,13 @@ BUDGET=0.30 MODEL=google/gemini-3.7-flash MODE=both ./record-runs.sh
 ```
 
 Naming a paid model without `BUDGET` exits before the browser starts. With one,
-the ceiling changes from zero to `AFFORDABLE` — 2 / 10 / 2 credits per million
-for prompt, completion and image. Those figures are generous against a cheap
+the ceiling changes from zero to `AFFORDABLE` — 2.5 / 12 / 2.5 credits per
+million for prompt, completion and image, which sits just above the dearest
+model on the roster rather than on it. Claude Sonnet 5 lists at exactly 2 and
+10, and a ceiling on those same numbers turns "is this affordable" into a
+question about whether the provider compares with `>` or `>=`, which is not a
+question a spending guard should have an opinion on. Those figures are generous
+against a cheap
 multimodal model and absurd against a frontier one, which is the line worth
 drawing: the ceiling's job stops being "never spend" and becomes "never spend a
 surprising amount", so a mistyped model id cannot route to something fifty times

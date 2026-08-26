@@ -2,13 +2,28 @@ name: instruction-following
 # Free models only. The point of this suite is not to find the best model in
 # the world, it is to measure the models a hobby project can actually afford,
 # which is a question nobody with a budget bothers to answer.
+#
+# This list goes stale, and faster than you expect: which models are free on
+# OpenRouter turns over completely in a matter of months, and every id below
+# replaced one that had been retired. Check before a run — a model id that no
+# longer resolves returns nothing but transport errors, and those attempts are
+# dropped rather than scored, so the run is not wrong, it is just emptier than
+# you meant it to be. `unreachable` in the report names any model that went
+# that way.
+#
+#   curl -s 'https://openrouter.ai/api/v1/models' \
+#     | jq -r '.data[] | select(.id | endswith(":free")) | .id'
 models:
-  - meta-llama/llama-3.3-70b-instruct:free
-  - qwen/qwen-2.5-72b-instruct:free
-  - google/gemma-2-9b-it:free
-  - mistralai/mistral-7b-instruct:free
-  - microsoft/phi-3-medium-128k-instruct:free
-judge_model: meta-llama/llama-3.3-70b-instruct:free
+  - thinkingmachines/inkling:free
+  - thinkingmachines/inkling-small:free
+  - dots-studio/dots-3-note-preview:free
+  - nvidia/nemotron-3.5-lightning:free
+  - liquid/lfm-2.5-2.6b:free
+# The judge is a model too, and brings its own variance on top of the variance
+# being measured — which is why only the two tasks nothing mechanical can settle
+# ever reach it. The largest context window on the list, so a long answer is
+# judged rather than truncated.
+judge_model: thinkingmachines/inkling:free
 repeats: 5
 
 tasks:

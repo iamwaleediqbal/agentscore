@@ -265,6 +265,22 @@ export function applyAction(state: MailState, action: Action): ApplyResult {
       return { state: next, ok: true };
     }
     case "compose": {
+      /*
+       * Opening a composer that is already open is not a new draft.
+       *
+       * The Compose button sends `compose` with no arguments, and this used to
+       * blow the draft away and replace it with an empty one. The open
+       * composer holds its three fields in component state, so it kept showing
+       * what had been typed while `state()` reported an empty draft — the
+       * screen and the world saying different things, in an application whose
+       * whole claim is that there is only one of them.
+       *
+       * With arguments it still writes: that is how the composer saves what
+       * was typed before send or save_draft files it.
+       */
+      const blank = args.to === undefined && args.subject === undefined && args.body === undefined;
+      if (next.composer && blank) return { state, ok: true };
+
       next.composer = {
         to: String(args.to ?? ""),
         subject: String(args.subject ?? ""),

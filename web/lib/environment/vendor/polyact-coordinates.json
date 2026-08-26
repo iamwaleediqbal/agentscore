@@ -1,0 +1,295 @@
+{
+  "version": 1,
+  "generated_by": "polyact/conformance/generate.py",
+  "note": "Coordinate conformance vectors. polyact is the specification; every consumer is expected to agree with these numbers. `exact` is the conversion before rounding, which is the part a consumer working in floating-point CSS pixels must match. `pixels` is polyact's own contract on top of that: round, then clamp into the screen, because a model that says 1000 on a 0-1000 axis means the far edge and the far edge of a 1920px screen is pixel 1919, not 1920.",
+  "spaces": {
+    "pixel": {
+      "polyact": "CoordinateSpace.PIXEL",
+      "rule": "the value is already a screenshot pixel",
+      "providers": [
+        "openai",
+        "anthropic"
+      ]
+    },
+    "normalized_1000": {
+      "polyact": "CoordinateSpace.NORMALIZED_1000",
+      "rule": "(value / 1000) * dimension",
+      "providers": [
+        "gemini",
+        "qwen-family grounding checkpoints"
+      ]
+    },
+    "fixed_grid": {
+      "polyact": "CoordinateSpace.FIXED_GRID",
+      "rule": "(value / grid_dimension) * dimension",
+      "providers": [
+        "fara-7b and similar fixed-canvas checkpoints"
+      ]
+    }
+  },
+  "declarations": [
+    {
+      "model": "google/gemini-3.7-flash",
+      "space": "normalized_1000",
+      "source": "Gemini computer use documents the conversion as (value / 1000) * dimension."
+    },
+    {
+      "model": "qwen/qwen3-vl-30b-instruct",
+      "space": "normalized_1000",
+      "source": "Qwen-family grounding checkpoints are trained on the normalised grid."
+    },
+    {
+      "model": "anthropic/claude-sonnet-5",
+      "space": "pixel",
+      "source": "Claude's computer use tool returns the pixel space of the screenshots you supply."
+    },
+    {
+      "model": "openai/gpt-5.6-luna",
+      "space": "pixel",
+      "source": "OpenAI Responses computer use emits screenshot pixels."
+    },
+    {
+      "model": "dots-studio/dots-3-note-preview:free",
+      "space": null,
+      "source": "Nothing published. Resolved from the coordinates themselves."
+    },
+    {
+      "model": "thinkingmachines/inkling:free",
+      "space": null,
+      "source": "Nothing published. Resolved from the coordinates themselves."
+    }
+  ],
+  "conversions": [
+    {
+      "space": "pixel",
+      "raw": {
+        "x": 960,
+        "y": 540
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 960.0,
+        "y": 540.0
+      },
+      "pixels": {
+        "x": 960,
+        "y": 540
+      },
+      "why": "OpenAI and Anthropic emit screenshot pixels: the middle is the middle."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 500,
+        "y": 500
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 960.0,
+        "y": 540.0
+      },
+      "pixels": {
+        "x": 960,
+        "y": 540
+      },
+      "why": "Gemini emits 0-1000 on each axis. The same middle, in different numbers."
+    },
+    {
+      "space": "fixed_grid",
+      "raw": {
+        "x": 714,
+        "y": 448
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 960.0,
+        "y": 540.0
+      },
+      "pixels": {
+        "x": 960,
+        "y": 540
+      },
+      "why": "Fara-7B answers in its 1428x896 training canvas whatever it was shown.",
+      "grid": {
+        "width": 1428,
+        "height": 896,
+        "patch": 28
+      }
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 1000,
+        "y": 1000
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 1920.0,
+        "y": 1080.0
+      },
+      "pixels": {
+        "x": 1919,
+        "y": 1079
+      },
+      "why": "1000 means the far edge, and the far edge of 1920 pixels is 1919."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 0,
+        "y": 0
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 0.0,
+        "y": 0.0
+      },
+      "pixels": {
+        "x": 0,
+        "y": 0
+      },
+      "why": "The origin is the origin in every space."
+    },
+    {
+      "space": "pixel",
+      "raw": {
+        "x": 1919,
+        "y": 1079
+      },
+      "screen": {
+        "width": 1920,
+        "height": 1080
+      },
+      "exact": {
+        "x": 1919.0,
+        "y": 1079.0
+      },
+      "pixels": {
+        "x": 1919,
+        "y": 1079
+      },
+      "why": "The last addressable pixel, unchanged."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 424,
+        "y": 630
+      },
+      "screen": {
+        "width": 1180,
+        "height": 720
+      },
+      "exact": {
+        "x": 500.32,
+        "y": 453.6
+      },
+      "pixels": {
+        "x": 500,
+        "y": 454
+      },
+      "why": "A real recorded Gemini coordinate from the published runs."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 500,
+        "y": 400
+      },
+      "screen": {
+        "width": 1180,
+        "height": 720
+      },
+      "exact": {
+        "x": 590.0,
+        "y": 288.0
+      },
+      "pixels": {
+        "x": 590,
+        "y": 288
+      },
+      "why": "Legal as pixels and legal as a grid value: the ambiguous case no rule settles."
+    },
+    {
+      "space": "pixel",
+      "raw": {
+        "x": 500,
+        "y": 400
+      },
+      "screen": {
+        "width": 1180,
+        "height": 720
+      },
+      "exact": {
+        "x": 500.0,
+        "y": 400.0
+      },
+      "pixels": {
+        "x": 500,
+        "y": 400
+      },
+      "why": "The same pair read the other way, which is why the page has to decide it."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 333,
+        "y": 667
+      },
+      "screen": {
+        "width": 1366,
+        "height": 768
+      },
+      "exact": {
+        "x": 454.87800000000004,
+        "y": 512.2560000000001
+      },
+      "pixels": {
+        "x": 455,
+        "y": 512
+      },
+      "why": "Neither axis divides evenly; the result is rounded, not truncated."
+    },
+    {
+      "space": "normalized_1000",
+      "raw": {
+        "x": 1,
+        "y": 1
+      },
+      "screen": {
+        "width": 1366,
+        "height": 768
+      },
+      "exact": {
+        "x": 1.366,
+        "y": 0.768
+      },
+      "pixels": {
+        "x": 1,
+        "y": 1
+      },
+      "why": "Rounds to the origin rather than to a pixel nobody aimed at."
+    }
+  ],
+  "_vendored": {
+    "from": "polyact",
+    "path": "conformance/coordinates.json",
+    "url": "https://github.com/iamwaleediqbal/polyact/blob/main/conformance/coordinates.json",
+    "why": "A copy, because the two live in separate repositories and a TypeScript runner cannot import a Python package's data directory. Refresh it by copying the file again; do not edit it here. polyact is the spec, this is a consumer holding itself to it."
+  }
+}

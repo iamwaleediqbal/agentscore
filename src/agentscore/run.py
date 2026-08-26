@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 
 import httpx
 from polyact import OpenRouterClient, TransportError
+from polyact.client import FREE_ONLY
 from polyact.usage import Usage, extract_usage
 
 from .graders import JUDGE_PROMPT, GradeResult, grade_deterministic, parse_judge
@@ -109,7 +110,16 @@ async def _attempt(
     started = time.monotonic()
     try:
         payload = await client.complete(
-            model=model, messages=messages, max_tokens=task.max_tokens, client=http
+            model=model,
+            messages=messages,
+            max_tokens=task.max_tokens,
+            client=http,
+            # A ceiling of zero, enforced by the provider refusing rather than
+            # by this code checking. The suite names free models, but a model
+            # id that is free today can be a paid endpoint next month and
+            # nothing announces it — so the guarantee cannot rest on the list
+            # being current. This one holds whatever the list says.
+            max_price=FREE_ONLY,
         )
     except TransportError as exc:
         attempt.error = str(exc)
@@ -156,6 +166,7 @@ async def _attempt(
                 ],
                 max_tokens=200,
                 client=http,
+                max_price=FREE_ONLY,
             )
         except TransportError as exc:
             attempt.error = f"judge unreachable: {exc}"
@@ -167,7 +178,20 @@ async def _attempt(
         attempt.reason = judged.reason
         return attempt
 
-    attempt.passed = all(r.passed for r in results) and bool(results)
+    # Nothing gradeable ran. A judge task with no judge model configured, or a
+    # task with no checks at all, reached here with an empty `results` and was
+    # recorded as `passed=False, reason="all checks passed"` — a failure whose
+    # stated reason says it passed, counted against the model as if it had
+    # answered badly. It is an ungraded attempt, which is the same kind of
+    # absence as an unreachable provider, and is dropped for the same reason.
+    if not results:
+        attempt.error = (
+            "no check could be applied"
+            + (" — the task needs a judge and no judge_model is set" if task.needs_judge else "")
+        )
+        return attempt
+
+    attempt.passed = all(r.passed for r in results)
     attempt.reason = "; ".join(r.reason for r in results if not r.passed) or "all checks passed"
     return attempt
 

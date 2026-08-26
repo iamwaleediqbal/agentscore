@@ -67,9 +67,17 @@ export const FREE_ONLY = {
  * absurd against a frontier one, which is exactly the line worth drawing.
  *
  * Per million tokens, which is the unit max_price takes.
+ *
+ * The figures are just above the most expensive model on the roster rather
+ * than on it. Claude Sonnet 5 lists at exactly 2 and 10, and a ceiling set to
+ * the same numbers turns "is this affordable" into a question about whether
+ * the provider compares with `>` or `>=` — which is not a question a spending
+ * guard should have an opinion on. A little headroom removes the boundary and
+ * costs the guard nothing: Claude Opus 5, at 5 and 25, is still refused, which
+ * is the line this was drawn to hold.
  */
 export const AFFORDABLE = {
-  max_price: { prompt: 2, completion: 10, request: 0, image: 2 },
+  max_price: { prompt: 2.5, completion: 12, request: 0, image: 2.5 },
 } as const;
 
 /**

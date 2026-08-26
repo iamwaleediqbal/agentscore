@@ -198,15 +198,24 @@ export function formatRelative(at: number, now: number): string {
  * Fold freshly recorded runs into what is already published.
  *
  * Recording one task at a time only has value if each invocation keeps the
- * ones before it. A re-recorded task replaces its own earlier result — matched
- * on task *and* action space, because a computer-use run and a tool-calling run
- * of the same task are different measurements and must not overwrite each
- * other — and every other run is left untouched.
+ * ones before it. A re-recorded run replaces its own earlier result and nothing
+ * else, which requires the key to name every dimension that makes two runs
+ * different measurements rather than two attempts at one:
+ *
+ *   task — obviously.
+ *   action space — a computer-use run and a tool-calling run of one task are
+ *     the comparison this harness exists to draw.
+ *   model — recording a second model is *adding a column*, not repeating a
+ *     measurement. Keyed without it, running the suite on a cheaper model to
+ *     compare against the first would silently delete the first.
  */
+export function runKey(run: RunRecord): string {
+  return `${run.taskId}:${run.mode ?? "tool"}:${run.model}`;
+}
+
 export function mergeRecorded(existing: RunRecord[], fresh: RunRecord[]): RunRecord[] {
-  const key = (run: RunRecord) => `${run.taskId}:${run.mode ?? "tool"}`;
-  const replaced = new Set(fresh.map(key));
-  return [...existing.filter((run) => !replaced.has(key(run))), ...fresh];
+  const replaced = new Set(fresh.map(runKey));
+  return [...existing.filter((run) => !replaced.has(runKey(run))), ...fresh];
 }
 
 /**

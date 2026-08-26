@@ -21,9 +21,36 @@ def build_report(attempts, suite, generated_at: str) -> dict[str, Any]:
         by_model[attempt.model].append(attempt)
 
     models = []
+    unreachable = []
     for model, model_attempts in by_model.items():
         counted = [a for a in model_attempts if a.counted]
         dropped = len(model_attempts) - len(counted)
+
+        # Every attempt failed to reach the model. That is not a score of zero
+        # and it must never be published as one.
+        #
+        # Left in the table, such a model got wilson(0, 0) — a pass rate of 0
+        # with an interval of [0, 1] — which is separated from nothing, so it
+        # took rank 1, collided with the genuine leader, and dragged that
+        # leader's row into a tie. A retired model id would have appeared as
+        # tied for first at 0%, and the model that actually won would have been
+        # marked as unable to beat it.
+        #
+        # The file already says "attempts that never reached a model are
+        # dropped, not scored zero". This is that sentence applied one level up,
+        # to a model whose attempts were *all* dropped.
+        if not counted:
+            unreachable.append(
+                {
+                    "model": model,
+                    "attempts": len(model_attempts),
+                    "reason": next(
+                        (a.error for a in model_attempts if a.error), "no attempt reached it"
+                    ),
+                }
+            )
+            continue
+
         passes = sum(1 for a in counted if a.passed)
         interval = wilson(passes, len(counted))
 
@@ -74,6 +101,10 @@ def build_report(attempts, suite, generated_at: str) -> dict[str, Any]:
         "task_count": len(suite.tasks),
         "judge_model": suite.judge_model,
         "models": models,
+        # Reported, not hidden. A model that vanished from the provider is a
+        # fact about the run, and silently dropping it makes a suite of five
+        # models that returned one row look like a suite of one.
+        "unreachable": unreachable,
         "notes": [
             "Pass rate is over every repeat, not a single run.",
             (
@@ -108,11 +139,19 @@ def _mark_ties(models: list[dict]) -> None:
         )
         model["rank"] = better + 1
 
-    counts: dict[int, int] = {}
-    for model in models:
-        counts[model["rank"]] = counts.get(model["rank"], 0) + 1
-    for model in models:
-        model["tied"] = counts[model["rank"]] > 1
+    # Overlap, not a rank collision.
+    #
+    # Counting equal rank numbers missed the common case: two models whose
+    # intervals overlap heavily can still land on different ranks, because rank
+    # counts only the models that are demonstrably better. The lower one then
+    # printed an unqualified "2" under a caption promising that a shared rank
+    # means the data cannot order them — the figure contradicting its own
+    # legend. Both committed sample reports show it.
+    for index, model in enumerate(models):
+        model["tied"] = any(
+            other_index != index and not separated(intervals[other_index], intervals[index])
+            for other_index in range(len(models))
+        )
 
 
 def _median(values: list[float]) -> float:

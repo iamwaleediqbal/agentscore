@@ -480,6 +480,92 @@ test("the coordinate space is known from the model before a coordinate exists", 
   assert.equal(declaredConvention("openrouter/free"), null);
 });
 
+/**
+ * Every model this project is recorded against, and what it must resolve to.
+ *
+ * A pin, not a listing. Adding a model to the roster is a one-line change to a
+ * table of regular expressions, and a regular expression written for a new
+ * family is exactly the kind of edit that silently captures an old one — a
+ * pattern for `gpt-` also matches `nvidia/nemotron-gpt-oss`, and a pattern for
+ * `google/` would swallow a Gemma text model that never sees a screenshot.
+ * Gemini's answer in particular is load-bearing: it is the model the published
+ * runs were recorded with, and moving it would reinterpret every coordinate in
+ * those records without touching them.
+ *
+ * So the whole roster is asserted at once. A new entry that disturbs an
+ * existing one fails here rather than in a paid run.
+ */
+const ROSTER: ReadonlyArray<[string, "pixels" | "grid1000" | null]> = [
+  // Recorded. Documents a 0-1000 grid and the conversion to apply.
+  ["google/gemini-3.7-flash", "grid1000"],
+  // Documented pixels of the image supplied.
+  ["openai/gpt-5.6-luna", "pixels"],
+  ["anthropic/claude-sonnet-5", "pixels"],
+  // Grounding models trained on the normalised grid.
+  ["qwen/qwen3-vl-30b-instruct", "grid1000"],
+  // Free, multimodal, tool-capable — and nothing published about their
+  // coordinate space. Null is the honest answer: the runner reads the space
+  // off the first coordinate that can only mean one thing, and hit-tests the
+  // ambiguous ones against the live page. Inventing a declaration for these
+  // would be worse than having none, because a wrong prior is applied on turn
+  // one and a missing one is not applied at all.
+  ["dots-studio/dots-3-note-preview:free", null],
+  ["thinkingmachines/inkling:free", null],
+  ["thinkingmachines/inkling-small:free", null],
+  // Routers and text-only models. Neither is a model whose coordinates mean
+  // anything, and neither may be captured by a family pattern.
+  ["openrouter/free", null],
+  ["google/gemma-4-31b-it:free", null],
+];
+
+test("every model on the roster resolves to exactly one declared convention", () => {
+  for (const [model, expected] of ROSTER) {
+    assert.equal(
+      declaredConvention(model),
+      expected,
+      `${model} should declare ${expected ?? "nothing"}`,
+    );
+  }
+});
+
+test("a family pattern does not capture a model from another vendor", () => {
+  // The failure mode this guards is a broad pattern quietly widening. Each of
+  // these contains a substring another family's rule is built around.
+  assert.equal(declaredConvention("nvidia/nemotron-gpt-oss-120b"), "pixels");
+  assert.notEqual(declaredConvention("openai/gpt-5.6-luna"), "grid1000");
+  assert.notEqual(declaredConvention("google/gemini-3.7-flash"), "pixels");
+});
+
+test("an undeclared model costs no model turn to classify", () => {
+  /*
+   * The performance claim the roster depends on. A model with no declaration
+   * is not slower or dearer to run — it is resolved from evidence the run
+   * already has:
+   *
+   *   a coordinate only one space can explain settles it outright, from
+   *   numbers already in the reply;
+   *
+   *   an ambiguous one is hit-tested against the live page, which is a DOM
+   *   query in the browser the run is already driving.
+   *
+   * Neither sends a request, so an unknown model pays in nothing but a line in
+   * the log. If the calibration ever grew a model call, an undeclared model
+   * would quietly cost a turn per ambiguous coordinate and the free models on
+   * the roster would stop being free.
+   */
+  const driver = source("runner/driver.ts");
+  const start = driver.indexOf("export async function calibrate");
+  assert.ok(start > 0, "the calibration helper is still exported as calibrate");
+
+  const body = driver.slice(start, driver.indexOf("\n}\n", start));
+  assert.doesNotMatch(
+    body,
+    /\bfetch\(|openrouter|askModel|\bask\(/i,
+    "calibration must not reach a model — an undeclared model would cost a turn per ambiguous click",
+  );
+  assert.match(body, /targetAt\(page/, "it resolves against the live page instead");
+});
+
 test("the declaration is keyed on the model that answered, not the one asked for", () => {
   const runner = source("runner/run.ts");
   assert.match(

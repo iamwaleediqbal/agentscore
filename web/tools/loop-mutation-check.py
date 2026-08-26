@@ -33,6 +33,7 @@ FLOW = ["tests/workflows.test.ts"]
 DEPLOY = ["tests/deployment.test.ts"]
 LAYOUT = ["tests/layout.test.ts"]
 COORDS = ["tests/computer.test.ts"]
+CONFORM = ["tests/conformance.test.ts"]
 BUDGET = ["tests/solvable.test.ts", "tests/computer.test.ts"]
 CLI = ["tests/workflows.test.ts", "tests/runner-cli.test.ts"]
 ALL = ["tests/agent-loop.test.ts", "tests/solvable.test.ts", "tests/grade.test.ts",
@@ -161,35 +162,36 @@ CASES = [
   # --- what CI does with nobody watching ---
 
   ('a scheduled job starts spending the quota again',
-   '.github/workflows/agent-runs.yml', 'on:\n  workflow_dispatch:',
+   '../.github/workflows/agent-runs.yml', 'on:\n  workflow_dispatch:',
                         'on:\n  schedule:\n    - cron: "0 4 * * 0"  # MUTATED\n  workflow_dispatch:', FLOW),
 
   ('a recording batch drops --append and replaces every other run',
-   '.github/workflows/agent-runs.yml', '--all --append --mode',
+   '../.github/workflows/agent-runs.yml', '--all --append --mode',
                         '--all --mode  # MUTATED', FLOW),
 
   ('CI is allowed to authorise spending',
-   '.github/workflows/agent-runs.yml', 'BUDGET: "0"',
+   '../.github/workflows/agent-runs.yml', 'BUDGET: "0"',
                         'BUDGET: "5"  # MUTATED', FLOW),
 
   ('the browser is installed through npx again',
-   '.github/workflows/agent-runs.yml', './runner/node_modules/.bin/playwright install --with-deps chromium',
+   '../.github/workflows/agent-runs.yml', './web/runner/node_modules/.bin/playwright install --with-deps chromium',
                         'npx --prefix runner playwright install --with-deps chromium  # MUTATED', FLOW),
 
-  ('the wait loop goes back to succeeding when nothing came up',
-   '.github/workflows/agent-runs.yml', '          echo "::error::the app never started serving on port 3000"\n          exit 1',
-                        '          # MUTATED', FLOW),
+  ('the gym check passes when the environment is unreachable',
+   '../.github/workflows/agent-runs.yml',
+   'if ! curl -sSf -o /dev/null --max-time 20 "${GYM_URL}"; then',
+   'if false; then  # MUTATED', FLOW),
 
   ('CI stops running the mutation checks',
-   '.github/workflows/ci.yml', 'python3 tools/loop-mutation-check.py',
+   '../.github/workflows/ci.yml', 'python3 tools/loop-mutation-check.py',
                         '# MUTATED', FLOW),
 
   ('the runner goes back to being unchecked',
-   '.github/workflows/ci.yml', '- run: npm run typecheck:runner',
+   '../.github/workflows/ci.yml', '- run: npm run typecheck:runner',
                         '# MUTATED', FLOW),
 
   ('a push races whatever landed on main during the run',
-   '.github/workflows/agent-runs.yml', '          git pull --rebase --autostash\n',
+   '../.github/workflows/agent-runs.yml', '          git pull --rebase --autostash\n',
                         '  # MUTATED\n', FLOW),
 
   ('--mode silently accepts a typo and records the wrong action space',
@@ -388,8 +390,20 @@ CASES = [
 
 
   ('gemini stops being known to answer on a 0-1000 grid',
-   'lib/environment/computer.ts', '{ match: /(^|\\/)google\\/|gemini/i, convention: "grid1000" },',
-   '{ match: /(^|\\/)google\\/|gemini/i, convention: "pixels" },  // MUTATED', COORDS),
+   'lib/environment/computer.ts', '{ match: /gemini/i, convention: "grid1000" },',
+   '{ match: /gemini/i, convention: "pixels" },  // MUTATED', COORDS),
+
+  ('the gemini rule widens back to every google model, catching text-only ones',
+   'lib/environment/computer.ts', '{ match: /gemini/i, convention: "grid1000" },',
+   '{ match: /(^|\\/)google\\/|gemini/i, convention: "grid1000" },  // MUTATED', COORDS),
+
+  ('the runner reads the vendored spec in the wrong coordinate space',
+   'tests/conformance.test.ts', '  normalized_1000: "grid1000",',
+   '  normalized_1000: "pixels",  // MUTATED', CONFORM),
+
+  ('the runner drifts from the spec it publishes conformance with',
+   'lib/environment/computer.ts', '      return { convention, imageX: (rawX / 1000) * iw, imageY: (rawY / 1000) * ih };',
+   '      return { convention, imageX: (rawX / 1024) * iw, imageY: (rawY / 1024) * ih };  // MUTATED', COORDS + CONFORM),
 
   ('the declaration is looked up from the model asked for, not the one that answered',
    'runner/run.ts', 'const declared = declaredConvention(reply.model);',
@@ -512,6 +526,38 @@ def baseline_ok(tests):
             print(f"  BASELINE RED: {' '.join(tests)}")
     return _BASELINE[key]
 
+
+# Paths are relative to `web/`, which is where this tool runs. The workflows are
+# one level up, at the top of the repository — they used to be addressed without
+# the `../` and matched a stale copy inside `web/` that GitHub never ran, so
+# eight cases about spending money were mutating a file with no effect on
+# anything. They now skip loudly if the path is wrong, which is how that was
+# found.
+def refuse_if_already_mutated(paths):
+    """Refuse to start on a tree that still carries a mutation.
+
+    Every marker this tool writes is removed on exit, on SIGINT, SIGTERM and
+    SIGHUP. It cannot be removed on SIGKILL, and a hard timeout kills rather
+    than signals — which is exactly how a run of this tool once left
+    `// MUTATED` in a source file, where it sat until the next test run failed
+    for a reason nobody could place.
+
+    So the first thing it does is look. A marker already in the tree means the
+    last run died without cleaning up, and mutating on top of that would edit a
+    file whose "original" is already wrong — turning a lost cleanup into a
+    corrupted source file.
+    """
+    dirty = [p for p in dict.fromkeys(paths)
+             if pathlib.Path(p).exists() and "// MUTATED" in pathlib.Path(p).read_text()]
+    if dirty:
+        print("\nREFUSING TO START — a previous run left a mutation behind:\n")
+        for path in dirty:
+            print(f"    {path}")
+        print("\nRestore them (`git checkout -- <path>`) and run this again.\n")
+        sys.exit(2)
+
+
+refuse_if_already_mutated([case[1] for case in CASES])
 
 results = []
 for name, rel, old, new, tests in CASES:

@@ -81,14 +81,47 @@ def test_median_latency_is_not_dragged_by_one_slow_call():
     assert report["models"][0]["median_latency_s"] == 1.0
 
 
-def test_a_model_with_only_failed_transport_reports_no_attempts():
+def test_a_model_nothing_reached_is_reported_separately_not_ranked():
     attempts = [attempt("a", "t1", False, error="boom") for _ in range(3)]
     report = build_report(attempts, suite(), "now")
-    model = report["models"][0]
-    assert model["attempts"] == 0
-    assert model["dropped_attempts"] == 3
-    # No evidence means maximum uncertainty, not a zero score.
-    assert model["ci_high"] == 1.0
+
+    # Not a row in the table. It used to be one, carrying wilson(0, 0) — a pass
+    # rate of 0 with an interval of [0, 1] — and an interval that wide is
+    # separated from nothing, so it took rank 1 and rendered as "0%".
+    assert report["models"] == []
+    assert report["unreachable"] == [{"model": "a", "attempts": 3, "reason": "boom"}]
+
+
+def test_a_vanished_model_cannot_drag_the_leader_into_a_tie():
+    # The failure this prevents, end to end. A retired model id returns nothing
+    # but transport errors; a real model wins outright. Ranked together, the
+    # dead one shares rank 1 and the live one is marked tied — beaten, by a
+    # model that never answered.
+    attempts = [attempt("gone", "t1", False, error="404") for _ in range(30)]
+    attempts += [attempt("real", "t1", i < 28) for i in range(30)]
+    report = build_report(attempts, suite(), "now")
+
+    assert [m["model"] for m in report["models"]] == ["real"]
+    assert report["models"][0]["rank"] == 1
+    assert report["models"][0]["tied"] is False
+    assert [u["model"] for u in report["unreachable"]] == ["gone"]
+    assert "gone" not in to_markdown(report)
+
+
+def test_overlapping_intervals_are_both_marked_tied():
+    # `tied` means "indistinguishable from someone", not "shares a rank
+    # number". Two models can overlap heavily and still land on different
+    # ranks, because rank counts only the models demonstrably better — so the
+    # lower one printed a clean "2" under a caption promising a shared rank
+    # whenever the data cannot order them.
+    attempts = [attempt("a", "t1", i < 11) for i in range(30)]   # 37%
+    attempts += [attempt("b", "t1", i < 8) for i in range(30)]   # 27%
+    report = build_report(attempts, suite(), "now")
+
+    assert all(m["tied"] for m in report["models"]), [
+        (m["model"], m["pass_rate"], m["ci_low"], m["ci_high"], m["rank"], m["tied"])
+        for m in report["models"]
+    ]
 
 
 def test_markdown_marks_ties_visibly():

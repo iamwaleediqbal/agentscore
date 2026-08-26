@@ -98,6 +98,15 @@ def grade_deterministic(output: str, check) -> GradeResult | None:
             parsed = json.loads(_strip_fence(output))
         except (json.JSONDecodeError, TypeError) as exc:
             return GradeResult(False, "deterministic", f"invalid JSON: {exc}", kind)
+        # A model answering `5` or `"Tokyo"` produces valid JSON that is not an
+        # object. `k not in 5` raises TypeError, which nothing above catches and
+        # `asyncio.gather` does not isolate — so one badly-shaped completion
+        # aborted every remaining attempt in the suite. It is a failed check,
+        # not an exception.
+        if check.value and not isinstance(parsed, dict):
+            return GradeResult(
+                False, "deterministic", f"JSON is {type(parsed).__name__}, not an object", kind
+            )
         if check.value:
             missing = [k for k in check.value if k not in parsed]
             return GradeResult(not missing, "deterministic", f"missing keys {missing}", kind)

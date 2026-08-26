@@ -108,9 +108,58 @@ export function totals(runs: RunRecord[]): Totals {
   };
 }
 
-/** The newest run for one task in one action space, or nothing. */
-export function cell(runs: RunRecord[], taskId: string, space: Space): RunRecord | undefined {
+/**
+ * The newest run of one task, in one action space, by one model.
+ *
+ * The model is required rather than optional, and that is the whole point of
+ * the signature. With more than one model recorded, "the newest run of this
+ * task in this space" is a question with an answer that changes depending on
+ * which model was recorded last — so a caller that forgot the model did not
+ * get a slightly worse answer, it got a different model's verdict rendered in
+ * a place that implied a single one. Making it impossible to omit is cheaper
+ * than remembering to pass it.
+ */
+export function cell(
+  runs: RunRecord[],
+  taskId: string,
+  space: Space,
+  model: string,
+): RunRecord | undefined {
   return runs
-    .filter((run) => run.taskId === taskId && spaceOf(run) === space)
+    .filter((run) => run.taskId === taskId && run.model === model && spaceOf(run) === space)
     .sort((a, b) => b.startedAt - a.startedAt)[0];
+}
+
+export interface TaskRow {
+  model: string;
+  computer?: RunRecord;
+  tool?: RunRecord;
+}
+
+/**
+ * Every model that has attempted one task, with its latest run in each space.
+ *
+ * One row per model, always — never a single "the run for this task", which is
+ * only well defined while exactly one model has been recorded. A model that has
+ * attempted one space and not the other keeps its row with a gap in it, because
+ * a missing measurement and a failed one are different facts and the table has
+ * to be able to show both.
+ *
+ * Ordered by how much each model has attempted, so the model with the most
+ * evidence reads first rather than whichever happened to run last.
+ */
+export function byTaskAndModel(runs: RunRecord[], taskId: string): TaskRow[] {
+  const forTask = runs.filter((run) => run.taskId === taskId);
+  const models = [...new Set(forTask.map((run) => run.model))];
+
+  return models
+    .map((model) => ({
+      model,
+      computer: cell(forTask, taskId, "computer", model),
+      tool: cell(forTask, taskId, "tool", model),
+    }))
+    .sort((a, b) => {
+      const count = (row: TaskRow) => (row.computer ? 1 : 0) + (row.tool ? 1 : 0);
+      return count(b) - count(a) || a.model.localeCompare(b.model);
+    });
 }

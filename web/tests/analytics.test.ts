@@ -106,8 +106,8 @@ test("the matrix cell picks the newest run for that task and space", () => {
   const older = run("a", "computer", "incomplete", { id: "older", startedAt: 1 });
   const newer = run("a", "computer", "pass", { id: "newer", startedAt: 2 });
 
-  assert.equal(cell([older, newer], "a", "computer")?.id, "newer");
-  assert.equal(cell([older, newer], "a", "tool"), undefined);
+  assert.equal(cell([older, newer], "a", "computer", older.model)?.id, "newer");
+  assert.equal(cell([older, newer], "a", "tool", older.model), undefined);
 });
 
 test("an empty run list produces zeroes rather than throwing", () => {

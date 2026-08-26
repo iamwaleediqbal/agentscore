@@ -322,8 +322,17 @@ test("free runs still refuse to spend anything at all", () => {
 test("a paid run still carries a hard rate ceiling", () => {
   // Its job changes from "never spend" to "never spend a surprising amount":
   // a mistyped id cannot route to a model costing fifty times the intent.
-  assert.equal(AFFORDABLE.max_price.prompt, 2);
-  assert.equal(AFFORDABLE.max_price.completion, 10);
+  //
+  // Asserted as a band rather than as two exact numbers. The point is where
+  // the ceiling sits relative to the roster, and pinning the literals means a
+  // model joining the roster fails this test for the wrong reason.
+  assert.ok(AFFORDABLE.max_price.prompt >= 2, "the dearest model on the roster must fit under it");
+  assert.ok(AFFORDABLE.max_price.prompt < 5, "a frontier model must not");
+  assert.ok(AFFORDABLE.max_price.completion >= 10);
+  assert.ok(AFFORDABLE.max_price.completion < 25);
+  // A per-request fee is never acceptable: it is charged whatever the reply is,
+  // including one that fails.
+  assert.equal(AFFORDABLE.max_price.request, 0);
 });
 
 test("a chosen model is never silently swapped for another", () => {

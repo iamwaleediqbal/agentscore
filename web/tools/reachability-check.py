@@ -16,8 +16,8 @@ Every file is restored afterwards, including when a mutation fails.
 import atexit
 import pathlib
 import signal
-import sys
 import subprocess
+import sys
 
 CASES = [
   ("reading-pane control used WITHOUT opening the message",
@@ -112,25 +112,72 @@ def baseline_ok(tests):
 
 REACH = ["tests/reachable.test.ts"]
 
-results=[]
+def refuse_if_already_mutated(paths):
+    """Refuse to start on a tree that still carries a mutation.
+
+    Every marker this tool writes is removed on exit, on SIGINT, SIGTERM and
+    SIGHUP. It cannot be removed on SIGKILL, and a hard timeout kills rather
+    than signals — which is exactly how a run of one of these tools once left
+    `// MUTATED` in a source file, where it sat until the next test run failed
+    for a reason nobody could place.
+
+    So the first thing it does is look. A marker already in the tree means the
+    last run died without cleaning up, and mutating on top of that would edit a
+    file whose "original" is already wrong — turning a lost cleanup into a
+    corrupted source file.
+    """
+    dirty = [q for q in dict.fromkeys(paths)
+             if pathlib.Path(q).exists() and "// MUTATED" in pathlib.Path(q).read_text()]
+    if dirty:
+        print("\nREFUSING TO START — a previous run left a mutation behind:\n")
+        for path in dirty:
+            print(f"    {path}")
+        print("\nRestore them (`git checkout -- <path>`) and run this again.\n")
+        sys.exit(2)
+
+
+refuse_if_already_mutated([case[1] for case in CASES])
+
+results = []
 for name, rel, old, new in CASES:
-    p=pathlib.Path(rel)
-    if not p.exists():
-        results.append((name, f"SKIP - {rel} does not exist")); continue
-    original=_stash(p)
-    if old not in original: results.append((name,"SKIP - anchor not found")); continue
+    path = pathlib.Path(rel)
+
+    # A moved or renamed file is a gap in the checks, not a crash — and it is
+    # reported as a skip rather than swallowed, because a case that silently
+    # stops running looks exactly like a case that passes.
+    if not path.exists():
+        results.append((name, f"SKIP - {rel} does not exist"))
+        continue
+
+    original = _stash(path)
+    if old not in original:
+        results.append((name, "SKIP - anchor not found"))
+        continue
+
+    # A suite that is already red cannot prove anything by going red again.
     if not baseline_ok(REACH):
-        results.append((name, "*** BASELINE RED - proves nothing ***")); continue
-    p.write_text(original.replace(old,new,1))
+        results.append((name, "*** BASELINE RED - proves nothing ***"))
+        continue
+
+    path.write_text(original.replace(old, new, 1))
     try:
-        r=subprocess.run(["node","--test","--experimental-strip-types",*REACH],capture_output=True,text=True)
+        r = subprocess.run(
+            ["node", "--test", "--experimental-strip-types", *REACH],
+            capture_output=True,
+            text=True,
+        )
     finally:
-        p.write_text(original, encoding="utf-8")
-    _ORIGINALS.pop(str(p), None)
-    results.append((name,"CAUGHT" if r.returncode!=0 else "*** NOT CAUGHT ***"))
-print(f"\n{'mutation':<52} result"); print("-"*76)
-for n,v in results: print(f"{n:<52} {v}")
-missed=[n for n,v in results if v!="CAUGHT"]
+        path.write_text(original, encoding="utf-8")
+    _ORIGINALS.pop(str(path), None)
+
+    results.append((name, "CAUGHT" if r.returncode != 0 else "*** NOT CAUGHT ***"))
+
+print(f"\n{'mutation':<52} result")
+print("-" * 76)
+for name, verdict in results:
+    print(f"{name:<52} {verdict}")
+
+missed = [name for name, verdict in results if verdict != "CAUGHT"]
 print("\nall caught" if not missed else f"GAPS: {len(missed)}")
 # A tool that reports a gap and exits 0 is a tool nothing is checking.
 sys.exit(1 if missed else 0)

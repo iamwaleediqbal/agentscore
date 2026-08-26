@@ -15,12 +15,25 @@ from .run import run_suite
 from .tasks import Suite
 
 
+def positive(value: str) -> int:
+    """An argparse type that refuses zero and negatives up front."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {number}")
+    return number
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="agentscore")
     parser.add_argument("suite", help="path to a suite YAML file")
     parser.add_argument("--out", default="results", help="output directory")
     parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--per-minute", type=int, default=18)
+    # Positive, checked here rather than discovered in the limiter. A value of
+    # zero meant "allow nothing", which the limiter expressed as an IndexError
+    # on an empty deque after the run had already started.
+    parser.add_argument(
+        "--per-minute", type=positive, default=18, help="requests per minute (at least 1)"
+    )
     parser.add_argument("--repeats", type=int, default=None, help="override suite repeats")
     parser.add_argument("--models", nargs="*", default=None, help="override suite models")
     args = parser.parse_args(argv)

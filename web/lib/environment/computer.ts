@@ -103,7 +103,12 @@ export interface Resolved {
  * usually does.
  */
 const DECLARED: ReadonlyArray<{ match: RegExp; convention: Convention }> = [
-  { match: /(^|\/)google\/|gemini/i, convention: "grid1000" },
+  // `gemini`, not `google/`. The vendor prefix captured every Google model
+  // including Gemma, which is a different lineage with nothing published about
+  // its coordinate space — and a wrong prior is applied on turn one, where a
+  // missing one is not applied at all. Strictly narrower, so Gemini's answer,
+  // which every published run was recorded under, is unchanged.
+  { match: /gemini/i, convention: "grid1000" },
   { match: /qwen|ui-?tars|internvl/i, convention: "grid1000" },
   { match: /(^|\/)anthropic\/|claude/i, convention: "pixels" },
   { match: /(^|\/)openai\/|gpt-|\bo[34]\b/i, convention: "pixels" },

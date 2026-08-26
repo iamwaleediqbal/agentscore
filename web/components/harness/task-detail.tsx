@@ -27,8 +27,8 @@ import { useRuns } from "@/hooks/use-runs";
 import { MAILBOX } from "@/lib/environment/describe";
 import { diff } from "@/lib/harness/grade";
 import { offlineSeed, turnsFor, type Task } from "@/lib/harness/tasks";
-import { cell } from "@/lib/harness/analytics";
-import { formatCost, formatDuration, statusLabel } from "@/lib/harness/runs";
+import { byTaskAndModel } from "@/lib/harness/analytics";
+import { formatCost, statusLabel } from "@/lib/harness/runs";
 
 const SPACES = [
   { space: "computer" as const, label: "Computer use" },
@@ -37,6 +37,7 @@ const SPACES = [
 
 export function TaskDetail({ task }: { task: Task }) {
   const { runs } = useRuns();
+  const rows = byTaskAndModel(runs, task.id);
   const required = diff(MAILBOX, offlineSeed(), task.expected(offlineSeed()));
 
   return (
@@ -88,36 +89,61 @@ export function TaskDetail({ task }: { task: Task }) {
             <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               Recorded runs
             </div>
+            {/* One row per model, never one row per space.
+                
+                A single "the computer-use run for this task" is well defined
+                only while exactly one model has been recorded; the moment a
+                second is, it silently means "whichever ran last". So the model
+                is the row, both spaces are columns, and a model that attempted
+                one space and not the other keeps its row with a gap — because
+                a measurement nobody took and a measurement that failed are
+                different facts. */}
             <div className="mt-2 space-y-2">
-              {SPACES.map(({ space, label }) => {
-                const run = cell(runs, task.id, space);
-                return (
-                  <div
-                    key={space}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
-                  >
-                    <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <span className="text-sm">{label}</span>
-                      {run ? (
-                        <VerdictBadge status={run.verdict?.status ?? null} size="sm" />
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">not recorded</span>
-                      )}
-                    </div>
-                    {run && (
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="tabular">
-                          {run.turns}/{run.maxTurns} turns · {run.tokens.total.toLocaleString()}{" "}
-                          tokens · {formatCost(run.cost)} · {formatDuration(run.durationMs)}
-                        </span>
-                        <Button asChild size="sm" variant="outline" className="h-7 text-xs">
-                          <Link href={`/runs/${run.id}`}>Open trajectory</Link>
-                        </Button>
-                      </div>
-                    )}
+              {rows.length === 0 && (
+                <p className="rounded-md border border-dashed px-3 py-2 text-[11px] text-muted-foreground">
+                  Nothing recorded for this task yet.
+                </p>
+              )}
+
+              {rows.map((row) => (
+                <div key={row.model} className="rounded-md border px-3 py-2">
+                  <div className="font-mono text-[11px] text-muted-foreground">{row.model}</div>
+
+                  <div className="mt-1.5 grid gap-1.5 sm:grid-cols-2">
+                    {SPACES.map(({ space, label }) => {
+                      const run = row[space];
+                      return (
+                        <div
+                          key={space}
+                          className="flex min-w-0 flex-wrap items-center gap-2 rounded bg-muted/40 px-2 py-1.5"
+                        >
+                          <span className="text-[11px] text-muted-foreground">{label}</span>
+                          {run ? (
+                            <>
+                              <VerdictBadge status={run.verdict?.status ?? null} size="sm" />
+                              <span className="tabular text-[11px] text-muted-foreground">
+                                {run.turns}/{run.maxTurns} · {formatCost(run.cost)}
+                              </span>
+                              <Button
+                                asChild
+                                size="sm"
+                                variant="ghost"
+                                className="ml-auto h-6 px-2 text-[11px]"
+                              >
+                                <Link href={`/runs/${run.id}`}>Open</Link>
+                              </Button>
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground/70">
+                              not recorded
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           </div>
 

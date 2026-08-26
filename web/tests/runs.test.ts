@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
 import type { ActionEntry, TimelineEntry } from "../lib/harness/entries.ts";
-import { type RunRecord, loadRuns, mergeRecorded, saveRun } from "../lib/harness/runs.ts";
+import { type RunRecord, loadRuns, mergeRecorded, runKey, saveRun } from "../lib/harness/runs.ts";
 
 /** A localStorage that refuses writes past a byte budget, the way a real one does. */
 function fakeStorage(budget: number) {
@@ -110,8 +110,13 @@ test("storage that rejects everything does not throw, it just does not persist",
 /* Recording one task at a time                                          */
 /* -------------------------------------------------------------------- */
 
-function stub(taskId: string, mode: "tool" | "computer", marker: string): RunRecord {
-  return { ...makeRun(marker, 1), taskId, mode };
+function stub(
+  taskId: string,
+  mode: "tool" | "computer",
+  marker: string,
+  model = "m",
+): RunRecord {
+  return { ...makeRun(marker, 1), taskId, mode, model };
 }
 
 test("a re-recorded task replaces only itself", () => {
@@ -187,4 +192,42 @@ test("re-recording one space leaves the other in place", () => {
   assert.ok(index.some((r) => r.id === "the-tool-run"), "the other space survived");
   assert.ok(index.some((r) => r.id === "new-computer"));
   assert.ok(!index.some((r) => r.id === "old-computer"));
+});
+
+
+test("recording a second model adds a comparison rather than deleting one", () => {
+  // The whole reason to record a second model is to put it beside the first.
+  // Keyed on task and space alone, the second recording would replace the
+  // first silently — the comparison would delete the thing being compared.
+  let index = mergeRecorded([], [stub("a", "tool", "gemini-a", "google/gemini-3.7-flash")]);
+  index = mergeRecorded(index, [stub("a", "tool", "inkling-a", "thinkingmachines/inkling:free")]);
+  index = mergeRecorded(index, [stub("a", "computer", "inkling-a-cu", "thinkingmachines/inkling:free")]);
+
+  assert.equal(index.length, 3);
+  assert.deepEqual(
+    index.map((r) => r.id).sort(),
+    ["gemini-a", "inkling-a", "inkling-a-cu"],
+  );
+});
+
+test("re-recording one model still replaces that model's own earlier run", () => {
+  // Append-safety must not become never-replace: a second attempt by the same
+  // model in the same space is a repeat, not a new column.
+  let index = mergeRecorded([], [stub("a", "tool", "old", "model-x")]);
+  index = mergeRecorded(index, [stub("a", "tool", "other", "model-y")]);
+  index = mergeRecorded(index, [stub("a", "tool", "new", "model-x")]);
+
+  assert.equal(index.length, 2);
+  assert.ok(index.some((r) => r.id === "new"));
+  assert.ok(index.some((r) => r.id === "other"));
+  assert.ok(!index.some((r) => r.id === "old"), "model-x's earlier run was replaced");
+});
+
+test("runKey names task, action space and model, and nothing else", () => {
+  const a = stub("t", "tool", "one", "m");
+  const b = stub("t", "tool", "two", "m");
+  assert.equal(runKey(a), runKey(b), "two attempts at one measurement share a key");
+  assert.notEqual(runKey(a), runKey(stub("t", "computer", "three", "m")));
+  assert.notEqual(runKey(a), runKey(stub("t", "tool", "four", "other")));
+  assert.notEqual(runKey(a), runKey(stub("u", "tool", "five", "m")));
 });

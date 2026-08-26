@@ -36,10 +36,23 @@ export function ModeSwitch({ run }: { run: RunRecord }) {
       {SPACES.map(({ mode, label, Icon }) => {
         const active = mode === current;
         // Newest first, so the control points at the most recent attempt.
+        // Same task, same MODEL, other space.
+        //
+        // Without the model this showed whichever run of the other space was
+        // most recent, from any model at all — so a free model's tool-calling
+        // run sat beside Gemini's computer-use verdict, labelled as though the
+        // two were one model's two attempts. The comparison this control
+        // exists to draw is between two action spaces holding everything else
+        // fixed, and the model is the largest of the things being held fixed.
         const sibling = active
           ? run
           : runs
-              .filter((r) => r.taskId === run.taskId && (r.mode ?? "tool") === mode)
+              .filter(
+                (r) =>
+                  r.taskId === run.taskId &&
+                  r.model === run.model &&
+                  (r.mode ?? "tool") === mode,
+              )
               .sort((a, b) => b.startedAt - a.startedAt)[0];
 
         const body = (
@@ -68,7 +81,9 @@ export function ModeSwitch({ run }: { run: RunRecord }) {
                   </span>
                 </div>
               ) : (
-                <div className="mt-0.5 text-[11px] text-muted-foreground">not recorded</div>
+                <div className="mt-0.5 text-[11px] text-muted-foreground">
+                  not recorded for this model
+                </div>
               )}
             </div>
           </div>

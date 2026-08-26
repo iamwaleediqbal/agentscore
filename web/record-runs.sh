@@ -68,6 +68,55 @@
 # Computer use needs a model that accepts images. The free router picks one; a
 # text-only MODEL will simply not see the screenshots.
 #
+# The roster. Recording a second model ADDS a column; it never replaces the
+# first, because a run is keyed on task, action space and model together.
+#
+# The estimates are not guesses. One full suite of Gemini — six tasks, both
+# spaces, twelve runs — moved 342k prompt tokens and 15.7k completion tokens,
+# so any model's suite is that shape priced at its own rate. Gemini's own bill
+# came in at $0.13 against a $0.32 list projection, because OpenRouter routes
+# to the cheapest endpoint that satisfies the price ceiling; every figure below
+# is therefore a list-price ceiling rather than an expectation.
+#
+#   MODEL                                  MODE      BUDGET   list est
+#   dots-studio/dots-3-note-preview:free   both        —        free
+#   openai/gpt-5.6-luna                    both      0.12      $0.09
+#   deepseek/deepseek-v4-flash-vision-exp  both      0.12      $0.09
+#   anthropic/claude-sonnet-5              computer  0.33      $0.29
+#   google/gemini-3.7-flash                both        —       recorded
+#
+# Claude is computer use only, and that is a budget decision worth being
+# explicit about: at $2 and $10 per million it is an order of magnitude dearer
+# than the rest, and its two spaces are not equally dear. Tool calling looks
+# cheaper — no screenshots — and is not: the serialised world is re-sent every
+# turn, so the six tool runs above carried 265k prompt tokens against computer
+# use's 77k. Computer use is both the cheaper half and the half where a
+# provider's coordinate convention is doing any work, so it is the half that
+# gets bought. Adding the other later is one command and replaces nothing.
+#
+# Free models need no BUDGET and cannot spend: every request carries a zero
+# price ceiling the provider enforces by refusing rather than billing. The free
+# tier allows 20 requests a minute, and 1000 a day once the account has $10 in
+# lifetime credits (50 a day below that) — a whole suite is under a hundred
+# requests, so the daily figure is the one that decides whether this is
+# possible, and on a funded account it is not close.
+#
+# Coordinates are handled per model and none of it is configured here:
+#
+#   Gemini and the Qwen-family grounding models document a 0-1000 grid; OpenAI
+#   and Anthropic document the pixels of the image supplied. That declaration is
+#   a prior, applied on the first turn before any coordinate exists to look at.
+#
+#   A coordinate that can only be read one way overrides the declaration, and an
+#   ambiguous one from a model with no declaration is settled by hit-testing
+#   both readings against the page that is already open.
+#
+#   So the free models above, which publish nothing about their coordinate
+#   space, are resolved from evidence rather than guessed at — and it costs no
+#   model turn and no tokens, only a line in the log. Adding one cannot change
+#   how Gemini's coordinates are read; tests/computer.test.ts pins the whole
+#   roster so that an edit which would is caught before a run pays for it.
+#
 # Playwright is a development dependency only. It lives in runner/, which has
 # its own manifest so the root install never sees it, and .vercelignore keeps it
 # out of the deployment entirely.
@@ -79,7 +128,7 @@
 set -eu
 
 case "${1:-}" in
-  -h|--help) sed -n '3,69p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help) sed -n '3,118p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
   --models)
     # Which models a run would try, without starting one or spending anything.
     cd "$(dirname "$0")"
@@ -90,6 +139,16 @@ case "${1:-}" in
 esac
 
 cd "$(dirname "$0")"
+
+# Defined before anything can call them. `die` was used by the MODE check and
+# the argument loop below while its definition sat forty lines further down, so
+# a bad MODE reported "die: command not found" instead of the message written
+# for exactly that case — the one path where being told what went wrong matters
+# most, because nothing has run yet and everything still can.
+say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
+ok()   { printf '  \033[32m\u2713\033[0m %s\n' "$1"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
+die()  { printf '\n\033[31m\u2717 %s\033[0m\n\n' "$1" >&2; exit 1; }
 
 MODEL="${MODEL:-openrouter/free}"
 MODE="${MODE:-computer}"
@@ -121,11 +180,6 @@ for arg in "$@"; do
     *)     ONLY="$ONLY $arg" ;;
   esac
 done
-
-say()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
-ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
-warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
-die()  { printf '\n\033[31m✗ %s\033[0m\n\n' "$1" >&2; exit 1; }
 
 cleanup() {
   rm -f "$TASK_LIST" "$BUDGET_STATE" 2>/dev/null || true

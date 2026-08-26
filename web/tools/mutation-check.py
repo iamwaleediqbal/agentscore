@@ -141,6 +141,32 @@ def baseline_ok(tests):
 
 FREE = ["tests/free-only.test.ts"]
 
+def refuse_if_already_mutated(paths):
+    """Refuse to start on a tree that still carries a mutation.
+
+    Every marker this tool writes is removed on exit, on SIGINT, SIGTERM and
+    SIGHUP. It cannot be removed on SIGKILL, and a hard timeout kills rather
+    than signals — which is exactly how a run of this tool once left
+    `// MUTATED` in a source file, where it sat until the next test run failed
+    for a reason nobody could place.
+
+    So the first thing it does is look. A marker already in the tree means the
+    last run died without cleaning up, and mutating on top of that would edit a
+    file whose "original" is already wrong — turning a lost cleanup into a
+    corrupted source file.
+    """
+    dirty = [p for p in dict.fromkeys(paths)
+             if pathlib.Path(p).exists() and "// MUTATED" in pathlib.Path(p).read_text()]
+    if dirty:
+        print("\nREFUSING TO START — a previous run left a mutation behind:\n")
+        for path in dirty:
+            print(f"    {path}")
+        print("\nRestore them (`git checkout -- <path>`) and run this again.\n")
+        sys.exit(2)
+
+
+refuse_if_already_mutated([case[1] for case in CASES])
+
 results = []
 for name, rel, old, new in CASES:
     p = pathlib.Path(rel)

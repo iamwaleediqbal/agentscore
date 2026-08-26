@@ -28,9 +28,11 @@ export default function RunDetail() {
     return (
       <div className="space-y-4">
         <h1 className="text-2xl font-semibold tracking-tight">Run not found</h1>
-        <p className="text-sm text-muted-foreground">
-          Runs live in the browser that produced them, so a link to one will not open
-          anywhere else.
+        <p className="max-w-[70ch] text-sm leading-relaxed text-muted-foreground">
+          Every run this console shows is committed with the deployment, so a link to one opens
+          the same trajectory for everybody. An id that is not here belongs to a run that was
+          never published — or to one that has since been replaced by a newer recording of the
+          same task, model and action space.
         </p>
         <Button asChild variant="outline">
           <Link href="/runs">

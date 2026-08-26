@@ -100,9 +100,9 @@ YAML file might execute something.
 ```yaml
 name: instruction-following
 models:
-  - meta-llama/llama-3.3-70b-instruct:free
-  - qwen/qwen-2.5-72b-instruct:free
-judge_model: meta-llama/llama-3.3-70b-instruct:free
+  - thinkingmachines/inkling:free
+  - dots-studio/dots-3-note-preview:free
+judge_model: thinkingmachines/inkling:free
 repeats: 5
 
 tasks:
@@ -156,7 +156,7 @@ Node 22 or newer.
 cd web
 npm install
 npm run dev          # http://localhost:3000
-npm test             # 260 tests, and they run with no install at all
+npm test             # 331 tests, and they run with no install at all
 ```
 
 The suite has no dependencies — Node's own test runner and type stripping — so
@@ -173,7 +173,7 @@ Python 3.10 or newer, and a free OpenRouter key from
 **1. Install.**
 
 ```bash
-git clone git@github.com-personal:iamwaleediqbal/agentscore.git
+git clone https://github.com/iamwaleediqbal/agentscore.git
 cd agentscore
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -182,8 +182,21 @@ pytest -q
 
 The install pulls [polyact](https://github.com/iamwaleediqbal/polyact) straight
 from GitHub, which is why `git` has to be on your path. Once polyact is on
-PyPI, swap that line in `pyproject.toml` for `polyact>=0.1.0` and the
+PyPI, `pyproject.toml` can name a version instead of a git URL, and the
 dependency resolves normally.
+
+**Working on both at once?** That git URL installs a *snapshot* of polyact's
+main branch, so a change you make in a local polyact checkout is invisible here
+until you reinstall — and the symptom is not subtle: the moment this repository
+imports something the snapshot predates, every test fails at collection on one
+ImportError. Point the environment at the checkout instead:
+
+```bash
+pip install -e ../polyact
+```
+
+CI still resolves the git URL, which is the stricter check and the right way
+round: local runs against what you are editing, CI against what is published.
 
 **2. Point it at a key.**
 
@@ -196,7 +209,7 @@ export $(grep -v '^#' .env | xargs)
 **3. Run a small suite first.**
 
 ```bash
-agentscore suites/instruction-following.yaml --out results/ --repeats 2 --models meta-llama/llama-3.3-70b-instruct:free
+agentscore suites/instruction-following.yaml --out results/ --repeats 2 --models thinkingmachines/inkling:free
 ```
 
 One model at two repeats is 20 requests: 16 attempts, plus 4 judge calls for
@@ -257,9 +270,14 @@ it.
 
 Results land in:
 
-* `results/latest.json` — what the site reads
-* `results/latest.md` — readable in the repo
+* `results/latest.json` — the machine-readable report
+* `results/latest.md` — the same thing, readable in the repo
 * `results/history/` — one file per run, so drift over time is visible
+
+Nothing reads `latest.json` automatically. The console derives its model page
+from the committed browser runs instead, and the portfolio site builds its chart
+from the same records — so this suite's output is read by a person, which is the
+only honest arrangement for a number nobody is watching get produced.
 
 Free model availability changes constantly. Models get retired, throttled, or
 quietly swapped for a smaller variant. The history directory is there because
@@ -273,7 +291,7 @@ a leaderboard that only shows today cannot tell you that a model got worse.
 pytest -q
 ```
 
-37 tests, no network. Every grader, the interval maths, the ranking, and the
+39 tests, no network. Every grader, the interval maths, the ranking, and the
 rate limiter are tested against the mistakes rather than the happy path:
 
 * `test_three_of_three_is_not_reported_as_certainty`
@@ -284,9 +302,33 @@ rate limiter are tested against the mistakes rather than the happy path:
 
 ## Built on
 
-[polyact](https://github.com/iamwaleediqbal/polyact) for the OpenRouter client and
-token normalisation, so cached and reasoning tokens are counted the same way
-whichever provider served the request.
+[polyact](https://github.com/iamwaleediqbal/polyact), and in two ways worth
+telling apart.
+
+**As a dependency.** The Python suite uses its OpenRouter client and its token
+normalisation, so cached and reasoning tokens are counted the same way whichever
+provider served the request — and every completion carries polyact's zero price
+ceiling, which the provider enforces by refusing rather than by billing.
+
+**As a specification.** The Playwright runner is TypeScript and cannot import a
+Python package, so it does the next best thing: it is tested against polyact's
+published coordinate vectors. `web/tests/conformance.test.ts` reads
+`conformance/coordinates.json` — vendored under `web/lib/environment/vendor/`,
+with its provenance in the file — and asserts that this runner converts every
+case identically, and that its own table of which model answers in which space
+agrees with polyact's.
+
+That matters because the failure it guards is silent. Gemini's computer-use
+models answer on a 0-1000 grid; Anthropic's and OpenAI's answer in the pixels of
+the screenshot you sent. Read one as the other and every click lands in the
+top-left quarter of the screen — nothing raises, no request fails, and the run
+records a model that appears unable to see. It cost a real paid run here before
+the rule existed, and the provider had documented the answer the whole time.
+
+A model with nothing published about its coordinate space is not guessed at. The
+first coordinate that can only mean one thing settles it, an ambiguous one is
+hit-tested against the live page, and neither costs a model turn or a token —
+which is why the free models on the roster stay free.
 
 ## License
 
