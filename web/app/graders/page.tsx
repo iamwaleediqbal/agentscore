@@ -53,7 +53,7 @@ export default function Graders() {
           <CardContent className="overflow-x-auto">
             <pre className="text-xs leading-relaxed sm:text-[13px]">
               <code>{`required = diff(initial → expected)    what a correct solve changes
-actual   = diff(initial → submitted)   what this agent changed
+actual   = diff(initial → final)   what this agent changed
 
 missing  = required − actual           it did not finish
 extra    = actual − required           it did more than it was asked`}</code>

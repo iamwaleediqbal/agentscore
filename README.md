@@ -8,17 +8,84 @@ repeats it enough times for the number to mean something.
 **Live:** [agentscore-sigma.vercel.app](https://agentscore-sigma.vercel.app) — the console, reading committed runs.
 The environment it drives is [clickmail-sigma.vercel.app/gym](https://clickmail-sigma.vercel.app/gym).
 
-Two measurements live here, and they are not interchangeable:
+## How one run works, in plain words
 
-**Browser agents.** `web/` opens [clickmail](https://github.com/iamwaleediqbal/clickmail)
-in a real browser, fetches the world before the task and after it, and grades one
-snapshot against the other — never the route taken, because there are many
-correct routes. Both snapshots are kept on the run record, so a change to the
-grading logic is retested against every past run without a single model call.
+1. **Pick a task and a model.** A task is a sentence a person could follow —
+   *"archive every unread message in Promotions"* — plus the check that says what
+   a finished job looks like.
 
-**Instruction following.** The Python suite repeats short tasks across free
-models and reports pass rates as intervals, with overlapping intervals left as
-ties.
+2. **Open the app in a real browser.** Playwright launches Chromium and loads
+   clickmail. Nothing is stubbed: the agent gets the same page a person gets.
+
+3. **Photograph the starting world.** Before the agent touches anything, the
+   harness asks clickmail for its whole state — every message, folder and flag —
+   and keeps it.
+
+4. **Let the model act, one turn at a time.** The harness sends the model the
+   task plus either a screenshot of the screen (computer use) or a written
+   description of it (tool calling). The model replies with one action — click
+   here, type this, archive that. The harness performs it and sends back what
+   happened. That loop repeats until the model says it is done or the turn
+   budget runs out.
+
+5. **Photograph the finished world.** The same request as step 3.
+
+6. **Grade the two photographs, not the route.** The check compares before with
+   after: did the messages that should have moved move, and did anything that
+   should have been left alone get touched? There are many correct ways to
+   archive an email, so the path is never graded — only what it left behind.
+
+7. **Store everything.** Both snapshots, every action, every screenshot, the
+   tokens and the money spent all land in one JSON file that is committed to the
+   repository.
+
+8. **The website only reads those files.** The console holds no API key. It
+   renders committed runs and nothing else, so no visitor can spend money and
+   everybody sees the same evidence.
+
+### Four verdicts, not two
+
+A binary pass/fail hides the interesting half of the failures.
+
+| verdict | what happened |
+|---|---|
+| **pass** | everything asked for, nothing extra |
+| **incomplete** | some of the work, none of it wrong |
+| **overreach** | the work, plus something it was told to leave alone |
+| **both** | incomplete *and* overreach |
+
+There is a fifth outcome that is not a verdict: an attempt that never reached
+the model — a timeout, a 429, a refused request — is **unscored** and leaves the
+denominator entirely. Why, in
+[§3 below](#3-a-broken-request-is-not-a-bad-score).
+
+### Why every task runs twice
+
+Each task is attempted in two action spaces, and the two are never averaged
+together:
+
+- **Tool calling** — the model is handed the screen as structured text and
+  answers with named actions. This measures whether it *understood the job*.
+- **Computer use** — the model is handed a screenshot and answers with pixel
+  coordinates. This measures whether it can *find the thing on screen*.
+
+A model that passes on tool calls and fails on screenshots understood the task
+and missed the button. That is a different problem from not understanding the
+task, and one number for both would hide it.
+
+The same story at the level of files and functions — which repository's which
+function is called, in what order — is in
+[docs/execution-cycle.md](docs/execution-cycle.md).
+
+### Two measurements live here, and they are not interchangeable
+
+**Browser agents** — `web/`, the run described above: a real browser driving
+[clickmail](https://github.com/iamwaleediqbal/clickmail), graded on snapshots.
+
+**Instruction following** — `src/agentscore/`, a Python suite that repeats short
+text-only tasks across free models. No browser, no screenshots.
+
+They answer different questions and their numbers are never combined.
 
 ## Layout
 
@@ -156,7 +223,7 @@ Node 22 or newer.
 cd web
 npm install
 npm run dev          # http://localhost:3000
-npm test             # 331 tests, and they run with no install at all
+npm test             # 340 tests, and they run with no install at all
 ```
 
 The suite has no dependencies — Node's own test runner and type stripping — so

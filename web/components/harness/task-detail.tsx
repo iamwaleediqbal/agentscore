@@ -28,7 +28,7 @@ import { MAILBOX } from "@/lib/environment/describe";
 import { diff } from "@/lib/harness/grade";
 import { offlineSeed, turnsFor, type Task } from "@/lib/harness/tasks";
 import { byTaskAndModel } from "@/lib/harness/analytics";
-import { formatCost, statusLabel } from "@/lib/harness/runs";
+import { formatCost } from "@/lib/harness/runs";
 
 const SPACES = [
   { space: "computer" as const, label: "Computer use" },
@@ -156,9 +156,6 @@ export function TaskDetail({ task }: { task: Task }) {
             </Badge>
             <Badge variant="secondary" className="font-normal">
               {turnsFor(task, "computer")} turns · computer use
-            </Badge>
-            <Badge variant="secondary" className="font-normal">
-              {statusLabel("completed")} is not the same as a pass
             </Badge>
           </div>
         </div>

@@ -365,6 +365,35 @@ const KEYS: Record<string, string> = {
   space: "Space",
 };
 
+/**
+ * Why a coordinate did not resolve, in the model's own terms.
+ *
+ * "click needs x and y" is right about the outcome and wrong about the cause
+ * whenever both keys were present but the wrong type — and that is the case
+ * that actually happens. A model emitted `{"x": "349, 85"}`, was told it needed
+ * x and y, saw that it had sent x, and re-sent the identical call. Four turns
+ * went that way in one run.
+ *
+ * Nothing here is coerced. Reading "349, 85" as a pair would be the harness
+ * inventing an intent the model did not express, and a grader that guesses is
+ * worse than one that refuses. The refusal stands; only the diagnosis improves,
+ * so a model that can correct itself has what it needs to.
+ */
+function whyNoPoint(action: Action): string {
+  const args = (action.args ?? {}) as Record<string, unknown>;
+  const shape = (key: string) => {
+    const value = args[key];
+    if (value === undefined) return `${key} is missing`;
+    if (typeof value === "number") return null;
+    return `${key} is ${typeof value} ${JSON.stringify(value)}, not a number`;
+  };
+
+  const wrong = ["x", "y"].map(shape).filter(Boolean);
+  return wrong.length
+    ? `${action.name} needs x and y as numbers — ${wrong.join("; ")}`
+    : `${action.name} needs x and y`;
+}
+
 export async function performComputer(
   page: Page,
   action: Action,
@@ -375,7 +404,7 @@ export async function performComputer(
   switch (action.name) {
     case "click":
     case "double_click": {
-      if (!point) return { ok: false, error: "click needs x and y" };
+      if (!point) return { ok: false, error: whyNoPoint(action) };
       if (
         point.outOfBounds ||
         !viewport ||
@@ -429,7 +458,7 @@ export async function performComputer(
     }
 
     case "scroll": {
-      if (!point) return { ok: false, error: "scroll needs x and y" };
+      if (!point) return { ok: false, error: whyNoPoint(action) };
       const dy = Number(action.args?.dy ?? action.args?.delta ?? 0);
       if (!Number.isFinite(dy) || dy === 0) return { ok: false, error: "scroll needs a dy" };
       await page.mouse.move(point.x, point.y);

@@ -13,6 +13,7 @@ import {
   describeResolution,
   resolvePoint,
   type Viewport,
+  readPoint,
 } from "../lib/environment/computer.ts";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
@@ -572,5 +573,101 @@ test("the declaration is keyed on the model that answered, not the one asked for
     runner,
     /declaredConvention\(reply\.model\)/,
     "the router's own name would be looked up instead of the model behind it",
+  );
+});
+/* -------------------------------------------------------------------- */
+/* Every provider's spelling of a point                                  */
+/* -------------------------------------------------------------------- */
+
+test("a point is read in whichever shape the provider that produced it uses", () => {
+  /*
+   * From a real run. Claude Sonnet 5 was given a schema declaring `x` and `y`
+   * as numbers and answered `{"x": "349, 85"}` — the pair squeezed into one
+   * field — then re-sent it after being refused, four times, and spent its
+   * whole turn budget.
+   *
+   * Anthropic's computer tool does not take named x and y. It emits
+   * `coordinate: [412, 233]`, and polyact's Anthropic parser opens by saying
+   * so. Offering only x and y asks that family to answer in a dialect it was
+   * never trained in, and then scores it for failing to.
+   */
+  const at = (args: Record<string, unknown>) => {
+    const p = readPoint(args);
+    return p && { x: p.x, y: p.y };
+  };
+
+  assert.deepEqual(at({ x: 349, y: 85 }), { x: 349, y: 85 });
+  assert.deepEqual(at({ coordinate: [412, 233] }), { x: 412, y: 233 });
+  assert.deepEqual(at({ coordinates: [1, 2] }), { x: 1, y: 2 });
+  assert.deepEqual(at({ point: [3, 4] }), { x: 3, y: 4 });
+  assert.deepEqual(at({ start_coordinate: [5, 6] }), { x: 5, y: 6 });
+});
+
+test("named x and y win when a call carries both spellings", () => {
+  // The schema asks for x and y, so a model that supplied them meant them.
+  const p = readPoint({ x: 1, y: 2, coordinate: [9, 9] });
+  assert.deepEqual({ x: p?.x, y: p?.y }, { x: 1, y: 2 });
+});
+
+test("a coordinate field carrying two numbers is read, not refused", () => {
+  /*
+   * The reading that cost a real run. Refusing punctuation is not rigour: the
+   * field is a coordinate field, two numbers in it have one meaning, and a
+   * model that spelled its own provider's format into the wrong slot still
+   * said where it wanted to click.
+   */
+  for (const value of ["349, 85", "349,85", "(349, 85)", "349 85", " 349 , 85 "]) {
+    assert.deepEqual(
+      { x: readPoint({ x: value })?.x, y: readPoint({ x: value })?.y },
+      { x: 349, y: 85 },
+      value,
+    );
+  }
+  // Numbers that arrived as strings in the right slots are fine too.
+  assert.equal(readPoint({ x: "349", y: "85" })?.x, 349);
+});
+
+test("what was normalised is recorded, never swallowed", () => {
+  // A harness that quietly rewrites model output is not one whose numbers
+  // anybody can check.
+  assert.equal(readPoint({ x: 349, y: 85 })?.normalised, undefined, "the clean case says nothing");
+  assert.match(readPoint({ coordinate: [412, 233] })!.normalised!, /coordinate/);
+  assert.match(readPoint({ x: "349, 85" })!.normalised!, /x carried the pair/);
+  assert.match(readPoint({ x: "349", y: "85" })!.normalised!, /strings/);
+});
+
+test("ambiguity is still refused rather than guessed at", () => {
+  /*
+   * The line this draws. `coordinate: [349, 85]` is a documented provider
+   * format and is accepted. `"349, 85"` is a malformed field belonging to no
+   * provider, and reading it as a pair would be the harness inventing an
+   * intent nobody expressed — which is the failure this project exists to
+   * refuse. It stays rejected; only the error message explains why.
+   */
+  // Normalising an expressed intent is the job; inventing one is not.
+  assert.equal(readPoint({ x: "1, 2, 3" }), null, "which two?");
+  assert.equal(readPoint({ x: 349 }), null, "a lone number is not a point");
+  assert.equal(readPoint({ x: "349" }), null);
+  assert.equal(readPoint({ coordinate: [349] }), null);
+  assert.equal(readPoint({ coordinate: [1, 2, 3] }), null);
+  assert.equal(readPoint({}), null);
+  assert.equal(readPoint(undefined), null);
+  // Both fields carrying the same pair string: the first one wins, and it is
+  // the same point either way.
+  assert.deepEqual(
+    { x: readPoint({ x: "349, 85", y: "349, 85" })?.x, y: readPoint({ x: "349, 85", y: "349, 85" })?.y },
+    { x: 349, y: 85 },
+  );
+});
+
+test("the runner reads points through readPoint, not by destructuring args", () => {
+  // The bug was a single destructure of `{ x, y }`. Anything that goes back to
+  // one silently drops every array spelling again.
+  const runner = source("runner/run.ts");
+  assert.match(runner, /readPoint\(parsed\.action\.args/);
+  assert.doesNotMatch(
+    runner,
+    /const \{ x, y \} = parsed\.action\.args/,
+    "reading x and y straight off the args excludes Anthropic's coordinate array",
   );
 });

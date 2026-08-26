@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
+import { refusedByDataPolicy } from "../lib/models.ts";
+
 /**
  * Guards on how a rate limit is handled.
  *
@@ -92,10 +94,13 @@ test("a spent quota ends the whole session, not just the task that discovered it
   const runner = read("runner/run.ts");
   const script = read("record-runs.sh");
 
+  // Both stop kinds exit 3, and for the same reason: there is nothing to gain
+  // from starting the next task. A spent quota comes back on its own; an
+  // account setting does not — but neither is fixed by trying again now.
   assert.match(
     runner,
-    /process\.exit\(stopKind === "quota" \? 3 : 1\)/,
-    "a quota stop must be distinguishable from a batch that merely recorded nothing",
+    /process\.exit\(stopKind === "quota" \|\| stopKind === "config" \? 3 : 1\)/,
+    "a quota or config stop must be distinguishable from a batch that merely recorded nothing",
   );
   assert.match(
     runner,
@@ -229,5 +234,49 @@ test("a paid run says what it can actually cost, from a measured turn", () => {
     source,
     /PAID && projected === null && reply\.cost > 0/,
     "the projection is recomputed every turn, or runs on a free batch",
+  );
+});
+
+test("an account setting that blocks every provider stops the session too", () => {
+  /*
+   * OpenRouter answers a request it cannot route with a 404 reading "No
+   * endpoints available matching your guardrail restrictions and data policy",
+   * which looks like a missing model and is not: the id, the key and the price
+   * ceiling are all fine, and the account refuses every provider serving it.
+   *
+   * Folded into the generic 4xx path it became "no model produced a usable
+   * reply" — true, unhelpful, and pointing at the harness rather than at the
+   * one setting that would fix it. Worse, the next five tasks would each spend
+   * a request discovering the same thing.
+   */
+  const runner = read("runner/run.ts");
+
+  assert.match(runner, /class ConfigError extends Error/);
+  assert.match(
+    runner,
+    /refusedByDataPolicy\(detail\)[\s\S]{0,200}throw new ConfigError/,
+    "a data-policy refusal must raise ConfigError rather than fall through to the 4xx break",
+  );
+  assert.match(
+    runner,
+    /openrouter\.ai\/settings\/privacy/,
+    "and the message must say where the setting lives",
+  );
+  assert.match(
+    runner,
+    /if \(stopKind === "config"\) \{[\s\S]*?process\.exit\(3\)/,
+    "a config stop must exit 3, so the recording script ends the session",
+  );
+});
+
+test("the data-policy detector does not fire on an ordinary 404", () => {
+  // A model id that is simply wrong must still be reported as a wrong id.
+  assert.equal(refusedByDataPolicy("No endpoints found for tool_choice"), false);
+  assert.equal(refusedByDataPolicy("model not found"), false);
+  assert.equal(
+    refusedByDataPolicy(
+      "No endpoints available matching your guardrail restrictions and data policy",
+    ),
+    true,
   );
 });

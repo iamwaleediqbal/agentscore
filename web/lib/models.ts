@@ -114,6 +114,28 @@ export function rejectsReasoning(detail: string): boolean {
 }
 
 /**
+ * A refusal that is about the account's data policy, not about the request.
+ *
+ * OpenRouter answers a request it cannot route with a 404 and the message "No
+ * endpoints available matching your guardrail restrictions and data policy",
+ * which reads like a missing model and is not. Nothing is wrong with the model
+ * id, the key, the price ceiling or the request: the account is configured to
+ * refuse providers that may train on inputs, and every provider serving that
+ * model does.
+ *
+ * It matters that this is named rather than folded into "no model produced a
+ * usable reply", because the two need opposite responses. A transport failure
+ * is worth another attempt; this one will fail identically until somebody
+ * changes a setting, and the run should say which setting.
+ *
+ * Some models are served by one provider only, which is when this becomes
+ * absolute — there is nothing else to route to.
+ */
+export function refusedByDataPolicy(detail: string): boolean {
+  return /data policy|guardrail restrictions/i.test(detail);
+}
+
+/**
  * A refusal that is about `tool_choice` itself, rather than about the request.
  *
  * Not every endpoint behind OpenRouter accepts the field. Some reject the value

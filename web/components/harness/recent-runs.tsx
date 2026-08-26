@@ -20,7 +20,9 @@ export function RecentRuns({ limit }: { limit?: number }) {
         </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <RunsTable runs={shown} ready={ready} />
+        {/* No totals row: this is a slice, and the Overview's own metrics
+            above already total every run. */}
+        <RunsTable runs={shown} ready={ready} totals={false} />
       </CardContent>
     </Card>
   );

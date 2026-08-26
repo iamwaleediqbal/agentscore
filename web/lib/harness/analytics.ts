@@ -15,6 +15,9 @@ import { isActionEntry } from "./entries.ts";
 import { type RunRecord, isScored } from "./runs.ts";
 
 export type Space = "computer" | "tool";
+
+/** The actions that carry a coordinate, and so can miss. */
+const AIMED_AT_A_POINT = new Set(["click", "double_click", "right_click", "drag", "move"]);
 export type VerdictKey = "pass" | "incomplete" | "overreach" | "both" | "unscored";
 
 export interface SpaceSummary {
@@ -30,6 +33,13 @@ export interface SpaceSummary {
   cost: number;
   /** Coordinate actions that landed on nothing. Computer use only. */
   missedClicks: number;
+  /**
+   * Actions that aimed at a point, which is the only population a miss rate
+   * can be taken over. `actions` includes typing and finishing, so using it as
+   * the denominator reported "0 of 291 clicks" over 236 clicks and 55 things
+   * that were never clicks.
+   */
+  clicks: number;
   actions: number;
 }
 
@@ -57,6 +67,7 @@ export function summarise(runs: RunRecord[], space: Space): SpaceSummary {
     tokens: 0,
     cost: 0,
     missedClicks: 0,
+    clicks: 0,
     actions: 0,
   };
 
@@ -68,8 +79,11 @@ export function summarise(runs: RunRecord[], space: Space): SpaceSummary {
     for (const entry of run.entries) {
       if (!isActionEntry(entry)) continue;
       summary.actions += 1;
+      if (!AIMED_AT_A_POINT.has(entry.action_name)) continue;
+      summary.clicks += 1;
       // "hit nothing" is the signature of a grounding miss: the model chose a
-      // point and no control was under it.
+      // point and no control was under it. The driver writes it on the entry
+      // (`driver.ts`, "the click landed on nothing").
       if (entry.metadata?.hit === "nothing") summary.missedClicks += 1;
     }
 

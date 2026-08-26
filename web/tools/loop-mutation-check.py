@@ -147,8 +147,12 @@ CASES = [
   # --- the paths that spend the user's quota ---
 
   ('a spent quota exits like any other empty batch',
-   'runner/run.ts', 'process.exit(stopKind === "quota" ? 3 : 1);',
+   'runner/run.ts', 'process.exit(stopKind === "quota" || stopKind === "config" ? 3 : 1);',
                         'process.exit(1);  // MUTATED', QUOTA),
+
+  ('an account setting that blocks every provider is treated as a retryable failure',
+   'runner/run.ts', 'if (response.status === 404 && refusedByDataPolicy(detail)) {',
+                        'if (false) {  // MUTATED', QUOTA),
 
   ('the recording script stops reading the stop code',
    'record-runs.sh', 'elif [ "$RUN_STATUS" -eq 3 ]; then',
@@ -291,13 +295,13 @@ CASES = [
    'export const GYM_HOME = "/gym";  // MUTATED', SPLIT),
 
   ('the interface links the environment as one of its own routes again',
-   'components/app-shell.tsx', '<a href={GYM_HOME} target="_blank" rel="noreferrer">',
-                        '<a href="/gym" target="_blank" rel="noreferrer">  {/* MUTATED */}', SPLIT),
+   'components/app-shell.tsx', 'href={GYM_HOME}',
+                        'href="/gym"  /* MUTATED */', SPLIT),
 
   # --- the verdict has to be checkable, not just stated ---
 
   ('the run detail stops showing the comparison behind the verdict',
-   'app/runs/[id]/page.tsx', '<StateComparison run={run} />',
+   'app/runs/[id]/run-detail.tsx', '<StateComparison run={run} />',
                         '{/* MUTATED */}', LAYOUT),
 
   ('the comparison stops marking which required changes never happened',
@@ -405,6 +409,18 @@ CASES = [
    'lib/environment/computer.ts', '      return { convention, imageX: (rawX / 1000) * iw, imageY: (rawY / 1000) * ih };',
    '      return { convention, imageX: (rawX / 1024) * iw, imageY: (rawY / 1024) * ih };  // MUTATED', COORDS + CONFORM),
 
+  ('the runner stops accepting Anthropic\'s coordinate array and only reads named x/y',
+   'lib/environment/computer.ts', '    const pair = asPoint(source[key]);',
+   '    const pair = null;  // MUTATED', COORDS),
+
+  ('a coordinate field carrying the pair as a string is refused again',
+   'lib/environment/computer.ts', '  const inX = asPoint(source.x);',
+   '  const inX = null;  // MUTATED', COORDS),
+
+  ('what the harness normalised stops being recorded',
+   'lib/environment/computer.ts', '    return clean ? { x, y } : { x, y, normalised: "x and y arrived as strings" };',
+   '    return { x, y };  // MUTATED', COORDS),
+
   ('the declaration is looked up from the model asked for, not the one that answered',
    'runner/run.ts', 'const declared = declaredConvention(reply.model);',
    'const declared = declaredConvention(MODEL);  // MUTATED', COORDS),
@@ -420,7 +436,8 @@ CASES = [
    'runner/run.ts', '        screenshotBefore: before,', '        // MUTATED', LAYOUT),
 
   ('the timeline stops distinguishing what was seen from what was done',
-   'components/harness/timeline.tsx', 'label="saw"', 'label="did"', LAYOUT),
+   'components/harness/browser-view.tsx', '["saw", "the screen the model was given"],',
+                        '["did", "the screen the model was given"],  // MUTATED', LAYOUT),
 
   ('a tool-calling turn is recorded as an empty reply again',
    'runner/run.ts', '        text:\n          reply.content ||',

@@ -56,10 +56,10 @@ export function Dashboard() {
         />
         <Metric
           label="Passed"
-          value={`${computer.passed + tool.passed} of ${computer.scored + tool.scored}`}
-          sub="counts, not a rate"
-          hint="Runs where every required change happened and nothing else moved. Shown as a count on purpose: a percentage over a sample this small reads as a precision the evidence does not have."
-          tone={computer.passed + tool.passed > 0 ? "good" : undefined}
+          value={`${tool.passed}/${tool.scored} · ${computer.passed}/${computer.scored}`}
+          sub="tool calling · computer use"
+          hint="Runs where every required change happened and nothing else moved. Kept apart rather than summed: the two action spaces are two different measurements, and one number over both is the average this harness exists to avoid. Counts rather than percentages, because a rate over a sample this small reads as a precision the evidence does not have."
+          tone={tool.passed + computer.passed > 0 ? "good" : undefined}
         />
         <Metric
           label="Total cost"
@@ -71,7 +71,7 @@ export function Dashboard() {
           label="Turns spent"
           value={String(all.turns)}
           sub={all.models.length === 1 ? all.models[0] : `${all.models.length} models`}
-          hint="One turn is one screenshot in and one action out. A task that exhausts its turn budget without finishing is recorded as incomplete, not as a crash."
+          hint="One turn is one observation in and one action out — a screenshot in computer use, the serialised mailbox in tool calling. A run that spends its whole budget is recorded as such and is still graded: it can still pass."
         />
       </div>
 

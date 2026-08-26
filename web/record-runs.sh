@@ -71,28 +71,37 @@
 # The roster. Recording a second model ADDS a column; it never replaces the
 # first, because a run is keyed on task, action space and model together.
 #
-# The estimates are not guesses. One full suite of Gemini — six tasks, both
+# The estimates were not guesses. One full suite of Gemini — six tasks, both
 # spaces, twelve runs — moved 342k prompt tokens and 15.7k completion tokens,
 # so any model's suite is that shape priced at its own rate. Gemini's own bill
 # came in at $0.13 against a $0.32 list projection, because OpenRouter routes
-# to the cheapest endpoint that satisfies the price ceiling; every figure below
-# is therefore a list-price ceiling rather than an expectation.
+# to the cheapest endpoint that satisfies the price ceiling, so a list figure
+# is a ceiling rather than an expectation.
 #
-#   MODEL                                  MODE      BUDGET   list est
-#   dots-studio/dots-3-note-preview:free   both        —        free
-#   openai/gpt-5.6-luna                    both      0.12      $0.09
-#   deepseek/deepseek-v4-flash-vision-exp  both      0.12      $0.09
-#   anthropic/claude-sonnet-5              computer  0.33      $0.29
-#   google/gemini-3.7-flash                both        —       recorded
+# What is actually committed under public/runs, and what it cost:
 #
-# Claude is computer use only, and that is a budget decision worth being
-# explicit about: at $2 and $10 per million it is an order of magnitude dearer
-# than the rest, and its two spaces are not equally dear. Tool calling looks
-# cheaper — no screenshots — and is not: the serialised world is re-sent every
-# turn, so the six tool runs above carried 265k prompt tokens against computer
-# use's 77k. Computer use is both the cheaper half and the half where a
-# provider's coordinate convention is doing any work, so it is the half that
-# gets bought. Adding the other later is one command and replaces nothing.
+#   MODEL                                  RUNS  tool  cu    actual
+#   openai/gpt-5.6-luna                      12   6     6    $0.0426
+#   google/gemini-3.7-flash                  12   6     6    $0.1297
+#   meta/muse-glimmer-30b                    12   6     6    $0.1331
+#   anthropic/claude-sonnet-5                 4   2     2    $0.3485
+#   dots-studio/dots-3-note-preview:free      8   6     2    $0.0000
+#                                            --                -----
+#                                            48              $0.6539
+#
+# Two departures from the plan, both worth naming rather than hiding. The
+# fourth slot was to be deepseek-v4-flash-vision-exp; its data policy returned
+# 404 for this account, so muse-glimmer-30b took the slot. And Claude was
+# planned as computer use only on cost grounds — at $2 and $10 per million it
+# is an order of magnitude dearer than the rest — but it ran two of each and
+# then hit the cap, which is why its column is the short one. Its cost per run
+# is 25x the cheapest model here, and the money went into turns: it averaged
+# 11.5 turns a run against gpt-5.6-luna's 7.1, and computer use re-sends the
+# accumulated screenshots every turn.
+#
+# The short columns are not padded to match. Two attempts is reported as two
+# attempts and shows up as a wide interval, because inventing four more runs
+# to square the table is the one thing an eval must never do.
 #
 # Free models need no BUDGET and cannot spend: every request carries a zero
 # price ceiling the provider enforces by refusing rather than billing. The free

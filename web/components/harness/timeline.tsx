@@ -10,10 +10,9 @@ import {
   Play,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   type ActionStatus,
@@ -39,25 +38,19 @@ const ACTION_LOOK: Record<ActionStatus, { label: string; dot: string; Icon: type
  */
 export function Timeline({
   entries,
-  running = false,
   activeActionId,
   onSelectAction,
   follow = false,
-  compact = false,
   className,
 }: {
   entries: TimelineEntry[];
-  running?: boolean;
   /** The action currently shown in the browser pane, highlighted here. */
   activeActionId?: string | null;
   onSelectAction?: (entry: TimelineEntry) => void;
   /** Scroll the active entry into view. Off while someone is reading. */
   follow?: boolean;
-  /** Drop the inline thumbnails when a browser pane is already showing them. */
-  compact?: boolean;
   className?: string;
 }) {
-  const [zoom, setZoom] = useState<string | null>(null);
   const counts = countEntries(entries);
   const activeRef = useRef<HTMLLIElement | null>(null);
 
@@ -72,28 +65,34 @@ export function Timeline({
     return (
       <div className="grid place-items-center gap-2 px-6 py-16 text-center">
         <Play className="size-5 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
-          {running ? "Waiting for the first turn…" : "Nothing recorded yet."}
-        </p>
+        <p className="text-sm text-muted-foreground">Nothing recorded yet.</p>
       </div>
     );
   }
 
   return (
     <>
+      {/* One badge, not three. A model that thinks once, answers once and acts
+          once per turn makes all three counts identical, which printed the same
+          number three times beside a Turns stat that printed it a fourth. Only
+          a count that disagrees with the action count is worth the space. */}
       <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
         <Badge variant="outline" className="gap-1.5 font-normal">
-          <Brain className="size-3" />
-          {counts.thinking} thinking
-        </Badge>
-        <Badge variant="outline" className="gap-1.5 font-normal">
-          <MessageSquare className="size-3" />
-          {counts.responses} responses
-        </Badge>
-        <Badge variant="outline" className="gap-1.5 font-normal">
           <Play className="size-3" />
-          {counts.actions} actions
+          {counts.actions} {counts.actions === 1 ? "action" : "actions"}
         </Badge>
+        {counts.thinking !== counts.actions && (
+          <Badge variant="outline" className="gap-1.5 font-normal">
+            <Brain className="size-3" />
+            {counts.thinking} thinking
+          </Badge>
+        )}
+        {counts.responses !== counts.actions && (
+          <Badge variant="outline" className="gap-1.5 font-normal">
+            <MessageSquare className="size-3" />
+            {counts.responses} responses
+          </Badge>
+        )}
       </div>
 
       <ScrollArea className={cn("h-[520px]", className)}>
@@ -103,13 +102,29 @@ export function Timeline({
             const active = entry.entry_type === "action" && entry.id === activeActionId;
             const selectable = Boolean(onSelectAction) && entry.entry_type === "action";
             return (
+              // Selecting an action is how the browser pane is driven, so it
+              // has to be reachable without a mouse: focusable, activated by
+              // Enter or Space, and announced as the pressed one.
               <li
                 key={entry.id}
                 ref={active ? activeRef : undefined}
                 onClick={selectable ? () => onSelectAction?.(entry) : undefined}
+                onKeyDown={
+                  selectable
+                    ? (event) => {
+                        if (event.key !== "Enter" && event.key !== " ") return;
+                        event.preventDefault();
+                        onSelectAction?.(entry);
+                      }
+                    : undefined
+                }
+                role={selectable ? "button" : undefined}
+                tabIndex={selectable ? 0 : undefined}
+                aria-pressed={selectable ? active : undefined}
                 className={cn(
                   "relative flex gap-3 pb-4 last:pb-0",
-                  selectable && "cursor-pointer",
+                  selectable &&
+                    "cursor-pointer rounded-md outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
                   active && "-mx-2 rounded-md bg-primary/[0.07] px-2 pt-2 ring-1 ring-primary/25",
                 )}
               >
@@ -190,36 +205,6 @@ export function Timeline({
                       {entry.error && (
                         <p className="mt-1 text-xs text-status-critical">{entry.error}</p>
                       )}
-                      {/*
-                        Both frames, labelled, in that order.
-                        
-                        One screenshot per action made a run unreadable in a
-                        specific way: an archive click shows an empty reading
-                        pane afterwards, which is the correct result and is
-                        indistinguishable from a click that hit nothing. Seeing
-                        the message open in "saw" and gone in "did" is the whole
-                        answer, and neither frame gives it alone.
-                      */}
-                      {!compact && (entry.screenshotBefore || entry.screenshot) && (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {entry.screenshotBefore && (
-                            <Frame
-                              src={entry.screenshotBefore}
-                              label="saw"
-                              hint={`Screen the model was shown before turn ${entry.turn}`}
-                              onZoom={setZoom}
-                            />
-                          )}
-                          {entry.screenshot && (
-                            <Frame
-                              src={entry.screenshot}
-                              label="did"
-                              hint={`Screen after turn ${entry.turn}`}
-                              onZoom={setZoom}
-                            />
-                          )}
-                        </div>
-                      )}
                     </div>
                   )}
                 </div>
@@ -228,16 +213,6 @@ export function Timeline({
           })}
         </ol>
       </ScrollArea>
-
-      <Dialog open={Boolean(zoom)} onOpenChange={(open) => !open && setZoom(null)}>
-        <DialogContent className="max-w-5xl p-2">
-          <DialogTitle className="sr-only">Environment screenshot</DialogTitle>
-          {zoom && (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={zoom} alt="Environment screenshot" className="w-full rounded" />
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
@@ -311,35 +286,6 @@ function aimOf(entry: { metadata?: Record<string, unknown> }): string | null {
   return typeof calibrated === "string"
     ? `${label}  ·  space settled as ${calibrated} from the page, and pinned`
     : label;
-}
-
-/** One labelled frame. Small enough to sit beside its pair, click to enlarge. */
-function Frame({
-  src,
-  label,
-  hint,
-  onZoom,
-}: {
-  src: string;
-  label: string;
-  hint: string;
-  onZoom: (src: string) => void;
-}) {
-  return (
-    <figure className="m-0 w-full max-w-[220px] min-w-0">
-      <button
-        onClick={() => onZoom(src)}
-        className="block w-full overflow-hidden rounded-md border transition-colors hover:border-primary"
-        aria-label={hint}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="" loading="lazy" className="block w-full" />
-      </button>
-      <figcaption className="mt-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </figcaption>
-    </figure>
-  );
 }
 
 function Row({ label, meta }: { label: string; meta?: string }) {

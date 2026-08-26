@@ -140,7 +140,20 @@ function SortHead({
   );
 }
 
-export function RunsTable({ runs, ready }: { runs: RunRecord[]; ready: boolean }) {
+export function RunsTable({
+  runs,
+  ready,
+  totals = true,
+}: {
+  runs: RunRecord[];
+  ready: boolean;
+  /**
+   * The totals row sums the rows it is given. On a page showing a slice, that
+   * put a six-run cost directly under a forty-eight-run cost with nothing to
+   * tell them apart, so a slice turns it off.
+   */
+  totals?: boolean;
+}) {
   // Relative times are computed after mount: rendering them on the server
   // produces a different string than the client a moment later.
   const [now, setNow] = useState<number | null>(null);
@@ -253,10 +266,13 @@ export function RunsTable({ runs, ready }: { runs: RunRecord[]; ready: boolean }
           {rows.map((run) => {
             const scored = isScored(run);
 
+            // No `cursor-pointer` on the row. Only the verdict badge and the
+            // task title navigate, and a pointer over the cost cell promises a
+            // click that does nothing.
             return (
               <TableRow
                 key={run.id}
-                className={cn("cursor-pointer", !scored && "bg-muted/30 text-muted-foreground")}
+                className={cn(!scored && "bg-muted/30 text-muted-foreground")}
               >
                 <TableCell>
                   <Link href={`/runs/${run.id}`} className="block">
@@ -362,6 +378,7 @@ export function RunsTable({ runs, ready }: { runs: RunRecord[]; ready: boolean }
 
         {/* Totals for what is on screen, so a filter answers "what did the
             computer-use runs cost" without anyone adding up a column. */}
+        {totals && (
         <tfoot className="border-t bg-muted/25 text-sm">
           <tr>
             <td className="px-2 py-2.5 text-xs text-muted-foreground" colSpan={2}>
@@ -388,6 +405,7 @@ export function RunsTable({ runs, ready }: { runs: RunRecord[]; ready: boolean }
             <td />
           </tr>
         </tfoot>
+        )}
       </Table>
     </div>
   );

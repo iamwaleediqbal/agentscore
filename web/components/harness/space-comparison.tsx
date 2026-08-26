@@ -112,7 +112,11 @@ export function SpaceComparison({ summary }: { summary: SpaceSummary }) {
         <Cell
           term={computer ? "Clicks that hit nothing" : "Actions"}
           value={
-            computer ? `${summary.missedClicks}/${summary.actions}` : String(summary.actions)
+            computer
+              ? summary.missedClicks
+                ? `${summary.missedClicks} of ${summary.clicks}`
+                : `none of ${summary.clicks}`
+              : String(summary.actions)
           }
         />
       </dl>

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Watching a run, live or afterwards.
+ * Reading a finished run.
  *
  * Two panes that answer different questions. The timeline says what the model
  * decided and why; the browser pane says what the screen looked like when it
@@ -9,13 +9,14 @@
  * model that "clicked the wrong thing" is often a model that clicked the right
  * thing on a screen that had not updated yet, and only the pair shows that.
  *
- * While a run is live the view follows its newest action. Touching the
- * timeline or the controls hands it over to whoever is reading, and it stays
- * handed over until they ask for the live edge back — a view that yanks itself
- * forward mid-sentence is unusable.
+ * There is no live mode. This console is static and holds no key, so a run is
+ * never in progress while somebody is looking at it. The component used to
+ * carry a `live` prop, a detached-from-the-live-edge state and a "Follow live"
+ * banner; nothing ever passed the prop, so all three were unreachable branches
+ * describing a feature the deployment cannot have.
  */
 
-import { ChevronDown, Gauge, Pause, Play, Radio, SkipBack, SkipForward } from "lucide-react";
+import { ChevronDown, Gauge, Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BrowserView } from "@/components/harness/browser-view";
@@ -42,17 +43,13 @@ const clampSplit = (value: number) => Math.min(Math.max(value, MIN_SPLIT), MAX_S
 
 export function RunMonitor({
   entries,
-  live = false,
   className,
 }: {
   entries: TimelineEntry[];
-  live?: boolean;
   className?: string;
 }) {
   const actions = useMemo(() => entries.filter(isActionEntry), [entries]);
-  const [detached, setDetached] = useState(false);
-  const following = live && !detached;
-  const playback = usePlayback(actions, following);
+  const playback = usePlayback(actions, false);
 
   const [split, setSplit] = useState(DEFAULT_SPLIT);
   // Read after mount: local storage is not available while rendering on the
@@ -73,24 +70,13 @@ export function RunMonitor({
     }
   }, [split]);
 
-  // A finished run resets to being followable, so reopening it is not stuck in
-  // whatever state the last viewing left it.
-  useEffect(() => {
-    if (!live) setDetached(false);
-  }, [live]);
-
-  const takeOver = useCallback(() => {
-    if (live) setDetached(true);
-  }, [live]);
-
   const onSelect = useCallback(
     (entry: TimelineEntry) => {
       if (!isActionEntry(entry)) return;
-      takeOver();
       const index = actions.findIndex((a) => a.id === entry.id);
       if (index !== -1) playback.jumpTo(index);
     },
-    [actions, playback, takeOver],
+    [actions, playback],
   );
 
   const drag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -116,26 +102,7 @@ export function RunMonitor({
 
   return (
     <div className={cn("flex min-h-0 flex-col overflow-hidden rounded-lg border", className)}>
-      {live && detached && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b bg-chart-4/15 px-3 py-2">
-          <span className="text-xs text-muted-foreground">
-            You are looking at an earlier step. The run is still going.
-          </span>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => {
-              setDetached(false);
-              playback.jumpTo(actions.length - 1);
-            }}
-          >
-            <Radio className="size-3.5" />
-            Follow live
-          </Button>
-        </div>
-      )}
-
-      {actions.length > 0 && !following && (
+      {actions.length > 0 && (
         <div className="flex shrink-0 items-center gap-2 border-b bg-muted/25 px-2 py-1.5">
           <Button
             variant="ghost"
@@ -177,10 +144,7 @@ export function RunMonitor({
             max={Math.max(0, actions.length - 1)}
             step={1}
             disabled={actions.length < 2}
-            onValueChange={(next) => {
-              takeOver();
-              playback.jumpTo(next[0] ?? 0);
-            }}
+            onValueChange={(next) => playback.jumpTo(next[0] ?? 0)}
             aria-label="Action"
           />
 
@@ -219,11 +183,9 @@ export function RunMonitor({
         <BrowserView action={current} className="h-[300px] border-b" />
         <Timeline
           entries={entries}
-          running={live}
           activeActionId={current?.id ?? null}
           onSelectAction={onSelect}
-          follow={following || playback.playing}
-          compact
+          follow={playback.playing}
           className="h-[360px]"
         />
       </div>
@@ -232,11 +194,9 @@ export function RunMonitor({
           <div className="min-h-0 overflow-hidden border-r" style={{ width: `${split}%` }}>
             <Timeline
               entries={entries}
-              running={live}
               activeActionId={current?.id ?? null}
               onSelectAction={onSelect}
-              follow={following || playback.playing}
-              compact
+              follow={playback.playing}
               className="h-[520px]"
             />
           </div>

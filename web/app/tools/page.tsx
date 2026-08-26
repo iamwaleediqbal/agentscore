@@ -11,7 +11,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ACTION_NAMES } from "@/lib/environment/actions";
 import { CATALOG, type ActionName, argsOf } from "@/lib/environment/catalog";
 import { SystemPrompts } from "@/components/harness/system-prompts";
 import { COMPUTER_ACTIONS } from "@/lib/environment/computer";
@@ -30,10 +29,17 @@ const TOOLS = (Object.keys(CATALOG) as ActionName[]).map((name) => ({
   ...CATALOG[name],
 }));
 export default function Tools() {
-  const missing = ACTION_NAMES.filter((name) => !TOOLS.some((t) => t.name === name));
-
   return (
     <div className="space-y-8">
+      <header className="space-y-2">
+        <h1 className="text-2xl font-semibold tracking-tight">Action spaces</h1>
+        <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
+          The same tasks, the same environment and the same grader, reached two different
+          ways. Which one a run used is recorded on the run, because a pass rate from one is
+          not comparable to a pass rate from the other.
+        </p>
+      </header>
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
           System prompts, exactly as sent
@@ -45,15 +51,6 @@ export default function Tools() {
         </p>
         <SystemPrompts />
       </section>
-
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Action spaces</h1>
-        <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
-          The same tasks, the same environment and the same grader, reached two different
-          ways. Which one a run used is recorded on the run, because a pass rate from one is
-          not comparable to a pass rate from the other.
-        </p>
-      </header>
 
       {/* --------------------------------------------------- how a turn is sent */}
 
@@ -109,7 +106,9 @@ export default function Tools() {
             <Eye className="size-4 text-primary" aria-hidden />
             Computer use
           </h2>
-          <Badge className="font-normal">default</Badge>
+          {/* No "default" badge. It was true only of a runner CLI flag this
+              console has no control for, and 26 of the 48 recorded runs are
+              tool calling. */}
         </div>
 
         <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
@@ -267,11 +266,6 @@ export default function Tools() {
           </CardContent>
         </Card>
 
-        {missing.length > 0 && (
-          <p className="text-sm text-muted-foreground">
-            Undocumented actions present in the reducer: {missing.join(", ")}
-          </p>
-        )}
       </section>
     </div>
   );

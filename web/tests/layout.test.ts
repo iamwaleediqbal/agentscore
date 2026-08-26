@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 
@@ -13,6 +13,24 @@ const read = (relative: string) => readFileSync(path.join(ROOT, relative), "utf8
  * shadcn component from the registry, the second by anyone deciding the verdict
  * deserves a panel of its own again.
  */
+
+test("every route names itself in the browser tab", () => {
+  // The layout sets `title: { default: "agentscore", template: "%s — agentscore" }`,
+  // and a `"use client"` page cannot export `metadata`, so the template never
+  // fired: four of the seven tabs read "agentscore" and nothing else. Each
+  // console now sits behind a server `page.tsx` that owns the title.
+  //
+  // The root is exempt: a home page whose tab reads "agentscore" is correct.
+  const pages = readdirSync(path.join(ROOT, "app"), { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && e.name === "page.tsx")
+    .map((e) => path.relative(path.join(ROOT, "app"), path.join(e.parentPath, e.name)));
+
+  const untitled = pages
+    .filter((relative) => relative !== "page.tsx")
+    .filter((relative) => !/export const metadata/.test(read(path.join("app", relative))));
+
+  assert.deepEqual(untitled, [], "these routes fall back to the bare site title");
+});
 
 test("the scroll viewport is forced to a block, so long lines wrap", () => {
   // Radix renders the viewport's inner wrapper as `display: table`, which
@@ -34,7 +52,7 @@ test("timeline text is allowed to break rather than overflow", () => {
 test("the trajectory gets the full width, not half of it", () => {
   // The verdict is a two-line answer; the trajectory is the thing being read.
   // Giving them equal width squeezed the one that mattered.
-  const detail = read("app/runs/[id]/page.tsx");
+  const detail = read("app/runs/[id]/run-detail.tsx");
 
   assert.ok(
     !/lg:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1\.2fr\)\]/.test(detail),
@@ -139,7 +157,7 @@ test("a run shows the comparison its verdict was computed from", () => {
   // The usage, not the import. An import left behind by a deleted element is
   // exactly the shape this assertion has to survive — it matched the import
   // line and reported the guard green with the panel gone from the page.
-  const detail = read("app/runs/[id]/page.tsx");
+  const detail = read("app/runs/[id]/run-detail.tsx");
   assert.match(
     detail,
     /<StateComparison\s+run=\{run\}\s*\/>/,
@@ -196,11 +214,16 @@ test("an action shows the screen it was decided from, not only the one it produc
    * was actually looking at when it chose was never on the page at all, so
    * "did it see the button" could not be answered from the record.
    */
-  const timeline = read("components/harness/timeline.tsx");
+  //
+  // The pair lives in the browser pane. The timeline used to carry a second
+  // copy of it behind a `compact` flag both call sites always set, so the
+  // guard was reading a branch that never rendered; it now reads the one that
+  // does.
+  const view = read("components/harness/browser-view.tsx");
 
-  assert.match(timeline, /entry\.screenshotBefore/, "the frame behind the decision is not rendered");
-  assert.match(timeline, /label="saw"/, "the two frames are not distinguishable");
-  assert.match(timeline, /label="did"/, "the two frames are not distinguishable");
+  assert.match(view, /action\.screenshotBefore/, "the frame behind the decision is not rendered");
+  assert.match(view, /"saw", "the screen the model was given"/, "the frames are not distinguishable");
+  assert.match(view, /"did", "what the action produced"/, "the frames are not distinguishable");
 });
 
 test("a turn that answered with a tool call does not read as an empty one", () => {

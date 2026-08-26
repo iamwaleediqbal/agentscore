@@ -76,9 +76,14 @@ export function ModeSwitch({ run }: { run: RunRecord }) {
               {sibling ? (
                 <div className="mt-0.5 flex flex-wrap items-center gap-2">
                   <VerdictBadge status={sibling.verdict?.status ?? null} size="sm" />
-                  <span className="tabular text-[11px] text-muted-foreground">
-                    {sibling.turns}/{sibling.maxTurns} turns · {formatCost(sibling.cost)}
-                  </span>
+                  {/* Turns and cost only for the run you are not looking at.
+                      On the active card they are the same two numbers the stat
+                      grid prints ten pixels above. */}
+                  {!active && (
+                    <span className="tabular text-[11px] text-muted-foreground">
+                      {sibling.turns}/{sibling.maxTurns} turns · {formatCost(sibling.cost)}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="mt-0.5 text-[11px] text-muted-foreground">

@@ -29,6 +29,7 @@ import {
   computerPrompt,
   computerToolSchemas,
   declaredConvention,
+  readPoint,
   describeResolution,
   resolvePoint,
 } from "../lib/environment/computer.ts";
@@ -38,6 +39,7 @@ import { MAILBOX } from "../lib/environment/describe.ts";
 import { grade } from "../lib/harness/grade.ts";
 import {
   AFFORDABLE,
+  refusedByDataPolicy,
   FREE_ONLY,
   REASONING_EFFORT,
   freeModels,
@@ -398,6 +400,16 @@ export class QuotaError extends Error {}
  */
 export class BilledError extends Error {}
 
+/**
+ * The account is configured such that this run cannot happen.
+ *
+ * Distinct from QuotaError, which means "not now", and from a transport
+ * failure, which means "try again". This one means "not until you change a
+ * setting", and it stops the batch immediately rather than spending the
+ * remaining tasks proving the same point six more times.
+ */
+export class ConfigError extends Error {}
+
 async function ask(
   messages: Message[],
   mode: Mode,
@@ -585,6 +597,25 @@ async function ask(
           dropToolChoice = true;
           console.log(`  ${model} will not take tool_choice — retrying without it`);
           continue;
+        }
+
+        // A 404 that is really an account setting.
+        //
+        // "No endpoints available matching your guardrail restrictions and data
+        // policy" reads like a missing model and is not: the id, the key and
+        // the price ceiling are all fine, and the account simply refuses every
+        // provider that serves it. Retrying cannot help and neither can the
+        // next model in the chain, so this stops the run and says what to
+        // change — the alternative is an operator reading "no usable reply" and
+        // going looking for a bug in the harness.
+        if (response.status === 404 && refusedByDataPolicy(detail)) {
+          throw new ConfigError(
+            `${model} is not reachable under this account's data policy.\n` +
+              `  Every provider serving it is excluded by the privacy settings on the key.\n` +
+              `  Either allow those providers at https://openrouter.ai/settings/privacy\n` +
+              `  — which lets them train on what is sent, so weigh it against what you send —\n` +
+              `  or pick a model with more than one provider behind it.`,
+          );
         }
 
         // Otherwise a malformed request will be malformed every time. Retrying
@@ -960,9 +991,31 @@ async function runTask(
       let error: string | undefined;
       let hit: string | undefined;
       let point: Resolved | null = null;
+      /**
+       * How the point was spelled, when it was not spelled as named x and y.
+       *
+       * Hoisted because the action entry below is written for both action
+       * spaces, while the reading that produces this happens inside the
+       * computer-use branch. Reaching into that branch from out here compiled
+       * under the app's tsconfig only because it excludes runner/.
+       */
+      let normalised: string | undefined;
 
       if (mode === "computer") {
-        const { x, y } = parsed.action.args as { x?: unknown; y?: unknown };
+        // Named x/y, or any array spelling a provider actually uses. See
+        // readPoint: Anthropic emits `coordinate: [x, y]` and never named
+        // fields, so a schema offering only x and y is asking that family to
+        // answer in a dialect it was not trained in.
+        const pair = readPoint(parsed.action.args as Record<string, unknown>);
+        const x = pair?.x;
+        const y = pair?.y;
+        normalised = pair?.normalised;
+        // Said out loud when it happened. The reading is defensible; hiding it
+        // would not be, and a reader who disagrees with it can see it to
+        // disagree with.
+        if (pair?.normalised) {
+          console.log(`  read the point from ${pair.normalised} — (${x}, ${y})`);
+        }
 
         /*
          * Annotated, and the annotation is load-bearing. `tsc` rejects this
@@ -1150,6 +1203,7 @@ async function runTask(
                 raw: point.raw,
                 convention: point.convention,
                 css: { x: Math.round(point.x), y: Math.round(point.y) },
+                ...(normalised ? { normalised } : {}),
                 label: describeResolution(point),
                 outOfBounds: point.outOfBounds,
                 // Set only on the turn the space was worked out, so a reader can
@@ -1409,7 +1463,7 @@ let stoppedEarly = "";
  * wasted request per remaining task, which is precisely the grind this batch
  * loop already refuses to do inside a single invocation.
  */
-let stopKind: "" | "quota" | "infrastructure" = "";
+let stopKind: "" | "quota" | "config" | "infrastructure" = "";
 
 for (const taskId of ids) {
   process.stdout.write(`running ${taskId} (${mode}) … `);
@@ -1417,6 +1471,15 @@ for (const taskId of ids) {
   try {
     run = await runTask(taskId, stamp, mode, chain);
   } catch (caught) {
+    if (caught instanceof ConfigError) {
+      // Not "stopped" — nothing was attempted. Printed in full because the
+      // message is the fix, and a truncated one sends the operator hunting.
+      console.log("cannot run");
+      console.log(`\n${caught.message}\n`);
+      stoppedEarly = caught.message;
+      stopKind = "config";
+      break;
+    }
     if (caught instanceof QuotaError || caught instanceof BilledError) {
       console.log("stopped");
       stoppedEarly = caught.message;
@@ -1522,7 +1585,7 @@ if (!scored.length) {
   console.log(
     "\nNothing was recorded: no run reached a model, so index.json is left as it was.",
   );
-  process.exit(stopKind === "quota" ? 3 : 1);
+  process.exit(stopKind === "quota" || stopKind === "config" ? 3 : 1);
 }
 
 /**
@@ -1567,6 +1630,14 @@ console.log(`\n${merged.length} run(s) in public/runs/index.json`);
  * and what is on disk has been kept. The recording script stops the session on
  * this code even under --all, where there is nobody at the keyboard to decide.
  */
+if (stopKind === "config") {
+  // Same exit code as a spent quota, for the same reason: there is no point
+  // starting the next task. Different message, because the fix is different —
+  // a quota comes back on its own and a setting does not.
+  console.log("\nStopping: nothing can run until that setting changes. What is above is saved.");
+  process.exit(3);
+}
+
 if (stopKind === "quota") {
   console.log("\nStopping: the quota or budget is spent. What is above is saved.");
   process.exit(3);

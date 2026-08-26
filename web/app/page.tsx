@@ -12,8 +12,10 @@ export default function Overview() {
         <h1 className="text-2xl font-semibold tracking-tight">Agent evaluation</h1>
         <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
           An agent is given a task in plain English and turned loose on a live mail
-          application. By default it sees only a screenshot and answers with coordinates —
-          the same leverage a person with a mouse has, and no more.
+          application. Every task is attempted twice: once reading the screen as a
+          screenshot and answering with coordinates — the same leverage a person with a
+          mouse has, and no more — and once reading it as text and answering with named
+          actions.
         </p>
         <p className="max-w-[80ch] text-sm leading-relaxed text-muted-foreground">
           Grading compares the mailbox it leaves behind against the one a correct solve

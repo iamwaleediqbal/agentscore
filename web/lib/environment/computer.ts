@@ -274,6 +274,93 @@ export function describeResolution(resolved: Resolved): string {
   return `(${raw.x}, ${raw.y}) ${label} → ${at} px`;
 }
 
+/**
+ * A point, in whichever shape the provider that produced it used.
+ *
+ * This exists because of a real run. Claude Sonnet 5 was handed a schema
+ * declaring `x: number, y: number` and answered `{"x": "349, 85"}` — the pair
+ * squeezed into one field as a string — was refused, told it needed x and y,
+ * could see that it *had* sent x, and re-sent the identical call until its turn
+ * budget ran out. It was then scored as having failed the task.
+ *
+ * Anthropic's computer tool has no named x and y. It emits
+ * `{"action": "left_click", "coordinate": [412, 233]}`, and polyact's Anthropic
+ * parser opens by saying so. Offering only x and y asks that family to answer
+ * in a dialect it was never trained in.
+ *
+ * Refusing the string was the wrong instinct too, and this is the same argument
+ * polyact is built on: providers disagree about how to spell a point, their
+ * disagreements do not raise, and normalising them is the job. A coordinate
+ * field carrying exactly two numbers has one reading. Declining to take it
+ * scores a model down for punctuation.
+ *
+ *   { x: 349, y: 85 }              named, the schema's own shape
+ *   { coordinate: [412, 233] }     Anthropic Messages
+ *   { coordinates | point: [...] } open checkpoints via OpenRouter
+ *   { x: "349, 85" }               the pair in one field, however punctuated
+ *
+ * What stays refused is ambiguity, because guessing there would be inventing an
+ * intent rather than reading one: `"1, 2, 3"` names no pair, and a lone number
+ * is not a point.
+ *
+ * `normalised` is returned rather than swallowed. The run record shows what the
+ * model sent and what it was read as, so a reader can disagree with the reading.
+ * A harness that quietly rewrites model output is not one whose numbers anybody
+ * can check.
+ */
+const PAIR_KEYS = ["coordinate", "coordinates", "point", "start_coordinate"] as const;
+const NUMBER = /-?\d+(?:\.\d+)?/g;
+
+/** One number, from a number or a string holding exactly one. */
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const found = value.match(NUMBER);
+  return found?.length === 1 ? Number(found[0]) : null;
+}
+
+/** A pair, from an array of two or a string holding exactly two. */
+function asPoint(value: unknown): { x: number; y: number } | null {
+  if (Array.isArray(value)) {
+    if (value.length !== 2) return null;
+    const [a, b] = value.map(asNumber);
+    return a !== null && b !== null ? { x: a, y: b } : null;
+  }
+  if (typeof value !== "string") return null;
+  const found = value.match(NUMBER);
+  return found?.length === 2 ? { x: Number(found[0]), y: Number(found[1]) } : null;
+}
+
+export interface ReadPoint {
+  x: number;
+  y: number;
+  /** How it was spelled, when that was not the schema's own `x` and `y`. */
+  normalised?: string;
+}
+
+export function readPoint(args: Record<string, unknown> | undefined): ReadPoint | null {
+  const source = args ?? {};
+
+  // The schema's own shape first: a model that supplied x and y meant them.
+  const x = asNumber(source.x);
+  const y = asNumber(source.y);
+  if (x !== null && y !== null) {
+    const clean = typeof source.x === "number" && typeof source.y === "number";
+    return clean ? { x, y } : { x, y, normalised: "x and y arrived as strings" };
+  }
+
+  // A single field carrying the whole pair.
+  const inX = asPoint(source.x);
+  if (inX) return { ...inX, normalised: `x carried the pair: ${JSON.stringify(source.x)}` };
+
+  for (const key of PAIR_KEYS) {
+    const pair = asPoint(source[key]);
+    if (pair) return { ...pair, normalised: `${key}: ${JSON.stringify(source[key])}` };
+  }
+
+  return null;
+}
+
 export const COMPUTER_ACTIONS: ReadonlyArray<{
   name: ComputerActionName;
   params: readonly Param[];

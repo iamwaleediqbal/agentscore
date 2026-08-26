@@ -308,13 +308,13 @@ npm run dev            # http://localhost:3000
 suite has no dependencies at all, just Node's own test runner and type
 stripping. That is also why CI runs the tests before the install step.
 
-The gym is a separate deployment; point `GYM_URL` at a local checkout of it if you are changing both at once
-puts clickmail on `:3000`, the harness on `:3001` and the portfolio on `:3002`.
+The gym is a separate deployment: point `GYM_URL` at a local clickmail
+checkout if you are changing both at once.
 
 ### Checks
 
 ```bash
-npm test                    # 331 tests, no dependencies
+npm test                    # 340 tests, no dependencies
 npm run typecheck           # the app
 npm run typecheck:runner    # the Playwright runner, which the app's tsconfig excludes
 npm run lint
@@ -398,7 +398,7 @@ image: 0}`, which OpenRouter enforces by *refusing* rather than by billing. The
 model list rejects any model with a non-zero price in any field. A reply that
 reports a cost aborts the run. The account balance is compared before and after.
 
-The free allowance is 1,000 requests a day. If every run in both spaces burned
+The free allowance is 50 requests a day, or 1,000 once the account has $10 in lifetime credits. If every run in both spaces burned
 its entire turn budget — which none do — the whole suite would be 208 requests.
 
 ### Spending on purpose

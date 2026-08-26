@@ -16,7 +16,7 @@ const NAV = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
   { href: "/runs", label: "Runs", Icon: Play },
   { href: "/graders", label: "Graders", Icon: Scale },
-  { href: "/tools", label: "Action space", Icon: Wrench },
+  { href: "/tools", label: "Action spaces", Icon: Wrench },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -70,7 +70,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               relative link quietly says the opposite.
             */}
             <Button asChild size="sm" variant="ghost" className="text-muted-foreground">
-              <a href={GYM_HOME} target="_blank" rel="noreferrer">
+              <a
+                href={GYM_HOME}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open the environment in a new tab"
+              >
                 <Inbox className="size-3.5" />
                 <span className="hidden sm:inline">Environment</span>
               </a>
