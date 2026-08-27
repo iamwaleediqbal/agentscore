@@ -109,8 +109,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-2 px-4 py-4 text-xs text-muted-foreground sm:px-6">
+          {/* Says what this is, not what it is a reduction of. The line here
+              used to call it a public version of the platform I work on, which
+              sold the work short and described someone else's system. */}
           <span>
-            A compact, public version of the agent evaluation platform I build full time.
+            An open harness for computer-use agents. Every number on this site comes from a
+            recorded run you can open.
           </span>
           <a href="https://github.com/iamwaleediqbal/agentscore" className="hover:text-foreground">
             Source
