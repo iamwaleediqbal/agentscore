@@ -223,7 +223,7 @@ Node 22 or newer.
 cd web
 npm install
 npm run dev          # http://localhost:3000
-npm test             # 340 tests, and they run with no install at all
+npm test             # 347 tests, and they run with no install at all
 ```
 
 The suite has no dependencies — Node's own test runner and type stripping — so

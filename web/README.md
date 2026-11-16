@@ -40,6 +40,9 @@ extra    = actual − required           it did more than it was asked
 Both snapshots are stored on the run record. That is the difference between a
 verdict and a number you have to trust: change the grading logic and every past
 run is regraded for nothing — no model call, no browser, no environment.
+`npm run regrade` does exactly that over the published runs and lists every
+verdict the current grader would move; `--write` saves them, `--check` fails
+when any would change.
 
 ## Four verdicts, and why "did more" is a failure
 
@@ -314,7 +317,8 @@ checkout if you are changing both at once.
 ### Checks
 
 ```bash
-npm test                    # 340 tests, no dependencies
+npm test                    # 347 tests, no dependencies
+npm run regrade             # every published run scored again from its snapshots, no model calls
 npm run typecheck           # the app
 npm run typecheck:runner    # the Playwright runner, which the app's tsconfig excludes
 npm run lint
